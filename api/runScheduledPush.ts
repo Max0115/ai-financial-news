@@ -1,3 +1,4 @@
+
 // Placed in /api/runScheduledPush.ts
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { GoogleGenAI, Type } from "@google/genai";
@@ -35,13 +36,12 @@ async function analyzeNews(ai: GoogleGenAI, newsContent: string) {
 }
 
 async function getFinancialCalendar(ai: GoogleGenAI) {
-    const schema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { date: { type: Type.STRING }, time: { type: Type.STRING }, country: { type: Type.STRING }, eventName: { type: Type.STRING }, importance: { type: Type.STRING, enum: ["High", "Medium", "Low"] } }, required: ["date", "time", "country", "eventName", "importance"] } };
+    const schema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { date: { type: Type.STRING }, time: { type: Type.STRING }, country: { type: Type.STRING }, eventName: { type: Type.STRING }, importance: { type: Type.STRING, enum: ["High"] } }, required: ["date", "time", "country", "eventName", "importance"] } };
     
-    // Explicitly provide today's date to the model to prevent confusion.
     const today = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Taipei"}));
-    const todayStr = today.toISOString().split('T')[0]; // Format: YYYY-MM-DD
+    const todayStr = today.toISOString().split('T')[0];
 
-    const prompt = `今天是 ${todayStr}。請提供未來一週內（從今天開始）全球最重要的財經事件日曆。請包含日期（YYYY-MM-DD）、時間（HH:MM，24小時制，台灣時間 UTC+8）、國家/地區的 ISO 3166-1 alpha-2 代碼、事件的繁體中文名稱和重要性（High, Medium, Low）。以 JSON 格式回傳。`;
+    const prompt = `今天是 ${todayStr}。請提供未來一週內（從今天開始）全球最重要的財經事件日曆。請包含日期（YYYY-MM-DD）、時間（HH:MM，24小時制，台灣時間 UTC+8）、國家/地區的 ISO 3166-1 alpha-2 代碼、事件的繁體中文名稱和重要性。**只回傳重要性為 'High' 的事件。** 以 JSON 格式回傳。`;
     
     try {
         const response = await ai.models.generateContent({
@@ -50,8 +50,10 @@ async function getFinancialCalendar(ai: GoogleGenAI) {
         });
         let events = JSON.parse(response.text.trim());
 
-        // Sort events chronologically to ensure correct order
         if (Array.isArray(events)) {
+            // Safeguard filter
+            events = events.filter(e => e.importance === 'High');
+            // Sort events chronologically
             events.sort((a, b) => {
                 const dateA = new Date(`${a.date}T${a.time || '00:00'}`);
                 const dateB = new Date(`${b.date}T${b.time || '00:00'}`);
@@ -67,26 +69,43 @@ async function getFinancialCalendar(ai: GoogleGenAI) {
 
 async function getTrumpTracker(ai: GoogleGenAI) {
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-    const schedulePrompt = `請使用 Google 搜尋，找出唐納·川普在今天 (${today}) 和明天兩天內的公開行程、集會或重要演講。以繁體中文和 JSON 格式回傳，格式為 { "schedule": [ { "date": "YYYY-MM-DD", "time": "HH:MM (時區)", "eventDescription": "..." } ] }。若無行程，回傳 { "schedule": [] }。`;
-    const postPrompt = `請使用 Google 搜尋，找出唐納·川普今日 (${today}) 在 Truth Social 上引起最多關注或報導的貼文內容。將內容翻譯成繁體中文，並提供一個相關的新聞報導或來源 URL。以 JSON 格式回傳，格式為 { "topPost": { "postContent": "...", "url": "..." } }。若無，回傳 { "topPost": { "postContent": "", "url": "" } }。`;
-    
-    let scheduleData = { schedule: [] };
-    let postData = { topPost: { postContent: "", url: "" } };
+    const prompt = `今天是 ${today}。請使用 Google 搜尋，綜合執行以下兩項任務，並將結果合併成一個 JSON 物件回傳：
+1.  **行程**: 找出唐納·川普在今天 (${today}) 和明天兩天內的公開行程、集會或重要演講。
+2.  **最新貼文**: 找出唐納·川普在 Truth Social 官方帳號 (@realDonaldTrump) 上**今日最新**的一則貼文。請提供貼文的繁體中文翻譯內容和貼文的直接 URL。
 
-    try {
-        const scheduleResponse = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: schedulePrompt, config: { tools: [{ googleSearch: {} }] } });
-        const cleanedText = scheduleResponse.text.trim().replace(/```json|```/g, "");
-        scheduleData = JSON.parse(cleanedText);
-    } catch (e) { console.error("Error fetching or parsing Trump schedule:", e); }
-
-    try {
-        const postResponse = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: postPrompt, config: { tools: [{ googleSearch: {} }] } });
-        const cleanedText = postResponse.text.trim().replace(/```json|```/g, "");
-        postData = JSON.parse(cleanedText);
-    } catch(e) { console.error("Error fetching or parsing Trump post:", e); }
-
-    return { schedule: scheduleData.schedule || [], topPost: postData.topPost || { postContent: "", url: "" } };
+請嚴格遵循以下 JSON 格式：
+{
+  "schedule": [ { "date": "YYYY-MM-DD", "time": "HH:MM (時區)", "eventDescription": "..." } ],
+  "topPost": { "postContent": "貼文內容...", "url": "..." }
 }
+
+如果找不到行程，"schedule" 應為空陣列 []。
+如果找不到今日貼文，"topPost" 中的 "postContent" 和 "url" 應為空字串。`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: { tools: [{ googleSearch: {} }] }
+        });
+        const cleanedText = response.text.trim().replace(/```json|```/g, "");
+        const parsedData = JSON.parse(cleanedText);
+        
+        // Ensure the structure is correct even if the model messes up
+        return {
+            schedule: parsedData.schedule || [],
+            topPost: parsedData.topPost || { postContent: "", url: "" }
+        };
+
+    } catch (e) {
+        console.error("Error fetching or parsing Trump tracker data:", e);
+        return {
+            schedule: [],
+            topPost: { postContent: "", url: "" }
+        };
+    }
+}
+
 
 async function sendComprehensiveDiscordMessage(webhookUrl: string, data: any) {
     const { financialNews, cryptoNews, calendar, trumpTracker } = data;
@@ -109,7 +128,7 @@ async function sendComprehensiveDiscordMessage(webhookUrl: string, data: any) {
         const getCountryFlag = (code: string) => ({'US':'🇺🇸','CN':'🇨🇳','JP':'🇯🇵','DE':'🇩🇪','GB':'🇬🇧','EU':'🇪🇺','FR':'🇫🇷','IT':'🇮🇹','CA':'🇨🇦','AU':'🇦🇺','NZ':'🇳🇿','CH':'🇨🇭'}[code.toUpperCase()]||'🏳️');
         const getImportanceEmoji = (imp: string) => ({'High':'🔥','Medium':'⚠️','Low':'✅'}[imp]||'');
         embeds.push({
-            title: '🗓️ 本週財經日曆', color: 5763719,
+            title: '🗓️ 本週重要財經日曆 (High)', color: 5763719,
             description: calendar.slice(0, 10).map((e: any) => `> **${e.date.substring(5)} ${e.time}** ${getCountryFlag(e.country)} ${e.eventName} (${getImportanceEmoji(e.importance)} ${e.importance})`).join('\n')
         });
     }
@@ -119,7 +138,7 @@ async function sendComprehensiveDiscordMessage(webhookUrl: string, data: any) {
             fields.push({ name: '🎤 行程與演講', value: trumpTracker.schedule.map((i: any) => `> - **${i.date.substring(5)} ${i.time}:** ${i.eventDescription}`).join('\n'), inline: false });
         }
         if (trumpTracker.topPost?.postContent) {
-            fields.push({ name: '💬 Truth Social 熱門', value: `> [原文連結](${trumpTracker.topPost.url})\n> "${trumpTracker.topPost.postContent}"`, inline: false });
+            fields.push({ name: '💬 Truth Social 最新貼文', value: `> [原文連結](${trumpTracker.topPost.url})\n> "${trumpTracker.topPost.postContent}"`, inline: false });
         }
         if (fields.length > 0) {
             embeds.push({ title: '🦅 川普動態', color: 15105570, fields });
