@@ -29,8 +29,10 @@ const App: React.FC = () => {
   const [refreshTrigger, setRefreshTrigger] = useState<number>(0);
   const [discordStatus, setDiscordStatus] = useState<DiscordStatus | null>(null);
   const [isSendingToDiscord, setIsSendingToDiscord] = useState<boolean>(false);
+  const [isAutoPushEnabled, setIsAutoPushEnabled] = useState<boolean>(false);
   
   const intervalRef = useRef<number | null>(null);
+  const isInitialMount = useRef(true);
   
   const fetchAndProcessNews = useCallback(async () => {
     setLoading(true);
@@ -81,8 +83,8 @@ const App: React.FC = () => {
     };
   }, []);
 
-  const handleSendToDiscord = async () => {
-    if (articles.length === 0) return;
+  const handleSendToDiscord = useCallback(async () => {
+    if (articles.length === 0 || isSendingToDiscord) return;
     setIsSendingToDiscord(true);
     setDiscordStatus(null);
     
@@ -111,7 +113,20 @@ const App: React.FC = () => {
         setIsSendingToDiscord(false);
         setTimeout(() => setDiscordStatus(null), 5000); // Hide status after 5s
     }
-  };
+  }, [articles, selectedFeed, isSendingToDiscord]);
+  
+    // Effect for auto-pushing to Discord
+  useEffect(() => {
+    if (isInitialMount.current) {
+        isInitialMount.current = false;
+        return;
+    }
+
+    if (isAutoPushEnabled && articles.length > 0) {
+        handleSendToDiscord();
+    }
+  }, [articles, isAutoPushEnabled, handleSendToDiscord]);
+
 
   return (
     <div className="app-container">
@@ -136,6 +151,17 @@ const App: React.FC = () => {
             <button onClick={handleSendToDiscord} disabled={loading || articles.length === 0 || isSendingToDiscord}>
                 {isSendingToDiscord ? '發送中...' : '推送到 Discord'}
             </button>
+             <div className="toggle-switch-container">
+                <input 
+                  type="checkbox" 
+                  id="auto-push-toggle" 
+                  className="toggle-switch"
+                  checked={isAutoPushEnabled}
+                  onChange={e => setIsAutoPushEnabled(e.target.checked)}
+                  disabled={loading}
+                />
+                <label htmlFor="auto-push-toggle" className="toggle-label">自動推送</label>
+            </div>
         </div>
       </div>
         
