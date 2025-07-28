@@ -33,7 +33,7 @@ const App: React.FC = () => {
   const [discordStatus, setDiscordStatus] = useState<DiscordStatus | null>(null);
   const [isSendingToDiscord, setIsSendingToDiscord] = useState<boolean>(false);
   
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<number | null>(null);
   
   const fetchAndProcessNews = useCallback(async () => {
     setLoading(true);
@@ -73,7 +73,7 @@ const App: React.FC = () => {
     if (intervalRef.current) {
         clearInterval(intervalRef.current);
     }
-    intervalRef.current = setInterval(() => {
+    intervalRef.current = window.setInterval(() => {
         setRefreshTrigger(prev => prev + 1); // Trigger refresh
     }, 5 * 60 * 1000); // 5 minutes
 
