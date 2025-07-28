@@ -38,8 +38,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         // 2. Parse content based on source format
         let newsContent: string;
-        // Reduce the number of articles to avoid timeout
-        const ARTICLE_LIMIT = 3;
+        // Increase limit to get a better selection for the top 4
+        const ARTICLE_LIMIT = 10;
 
         if (feedUrl.includes("reuters.com")) {
             const json = JSON.parse(rawText);
@@ -80,16 +80,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             items: {
                 type: Type.OBJECT,
                 properties: {
-                    eventName: { type: Type.STRING, description: "The main event or news title, concisely summarized." },
-                    summary: { type: Type.STRING, description: "A brief, neutral summary of the news (2-3 sentences)." },
-                    importance: { type: Type.STRING, enum: ["High", "Medium", "Low"], description: "The potential market impact: High, Medium, or Low." },
-                    link: { type: Type.STRING, description: "The original URL of the news article." },
-                    publicationDate: { type: Type.STRING, description: "The publication date of the news, formatted as an ISO 8601 string." },
+                    eventName: { type: Type.STRING, description: "主要事件或新聞標題，已翻譯成口語化的繁體中文。" },
+                    summary: { type: Type.STRING, description: "新聞的簡短中立摘要（約2-3句話），已翻譯成口語化的繁體中文。" },
+                    importance: { type: Type.STRING, enum: ["High", "Medium", "Low"], description: "潛在的市場影響力：高、中或低。" },
+                    link: { type: Type.STRING, description: "原始新聞文章的URL。" },
+                    publicationDate: { type: Type.STRING, description: "新聞的發布日期，格式為ISO 8601字符串。" },
                 },
                 required: ["eventName", "summary", "importance", "link", "publicationDate"],
             },
         };
-        const prompt = `Analyze the following financial news items. For each item, provide the event name, a short summary, its market importance (High, Medium, or Low), its original link, and its publication date. Provide the output as a JSON array of objects based on the requested schema. Here are the news items:\n\n${newsContent}`;
+        const prompt = `請從以下財經新聞列表中，選出最重要的四則新聞。針對這四則新聞，請執行以下任務：
+1. 將 eventName (事件名稱) 和 summary (摘要) 翻譯成自然流暢、口語化的繁體中文。
+2. 保持 importance (重要性)、link (原始連結) 和 publicationDate (發布日期) 不變。
+3. 最終請以 JSON 陣列的格式回傳這四則經過處理的新聞，並嚴格遵守提供的 schema。如果提供的新聞少于四則，請處理所有新聞。
+
+這是新聞列表：\n\n${newsContent}`;
 
         const genAIResponse = await ai.models.generateContent({
             model: "gemini-2.5-flash",
