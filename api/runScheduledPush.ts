@@ -1,4 +1,3 @@
-
 // Placed in /api/runScheduledPush.ts
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { GoogleGenAI, Type } from "@google/genai";
@@ -19,7 +18,10 @@ async function getNewsFromSource(feedUrl: string) {
     } else {
         const PROXY_URL = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`;
         const response = await fetch(PROXY_URL);
-        if (!response.ok) throw new Error(`Failed to fetch from rss2json proxy. Status: ${response.status}.`);
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Failed to fetch from rss2json proxy. Status: ${response.status}. Body: ${errorText}`);
+        }
         const json = await response.json();
         if (json.status !== 'ok' || !json.items || json.items.length === 0) {
             return null;
@@ -43,13 +45,14 @@ async function analyzeWithGemini(apiKey: string, newsContent: string) {
                 summary: { type: Type.STRING, description: "新聞的簡短中立摘要（約2-3句話），已翻譯成口語化的繁體中文。" },
                 importance: { type: Type.STRING, enum: ["High", "Medium", "Low"], description: "潛在的市場影響力：高、中或低。" },
                 link: { type: Type.STRING, description: "原始新聞文章的URL。" },
+                publicationDate: { type: Type.STRING, description: "新聞的發布日期，格式為ISO 8601字符串。" },
             },
-            required: ["eventName", "summary", "importance", "link"],
+            required: ["eventName", "summary", "importance", "link", "publicationDate"],
         },
     };
     const prompt = `請從以下財經新聞列表中，選出最重要的四則新聞。針對這四則新聞，請執行以下任務：
 1. 將 eventName (事件名稱) 和 summary (摘要) 翻譯成自然流暢、口語化的繁體中文。
-2. 保持 importance (重要性) 和 link (原始連結) 不變。
+2. 保持 importance (重要性)、link (原始連結) 和 publicationDate (發布日期) 不變。
 3. 最終請以 JSON 陣列的格式回傳這四則經過處理的新聞，並嚴格遵守提供的 schema。如果提供的新聞少于四則，請處理所有新聞。
 
 這是新聞列表：\n\n${newsContent}`;
@@ -95,8 +98,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(500).send('Server configuration error: CRON_SECRET is not set.');
     }
     
-    if (req.headers['x-vercel-cron-secret'] !== cronSecret) {
-      console.error("Unauthorized cron job access attempt: Invalid secret.");
+    const requestSecret = req.headers['x-vercel-cron-secret'];
+    if (requestSecret !== cronSecret) {
+      console.error(`Unauthorized cron job access attempt. Expected secret: ...${cronSecret.slice(-4)}, Received: ${typeof requestSecret === 'string' ? '...' + requestSecret.slice(-4) : 'undefined'}`);
       return res.status(401).send('Unauthorized');
     }
     

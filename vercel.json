@@ -1,0 +1,16 @@
+{
+  "functions": {
+    "api/runScheduledPush": {
+      "maxDuration": 60
+    },
+    "api/getNews": {
+      "maxDuration": 45
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/runScheduledPush",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}
