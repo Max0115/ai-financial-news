@@ -1,12 +1,13 @@
+
 {
-  "name": "AI Financial News Assistant",
-  "description": "An app that fetches financial news, uses Gemini for analysis, and can push results to Discord. Includes a Vercel Cron Job for 24/7 automated pushes.",
+  "name": "AI Financial Insight Dashboard",
+  "description": "An app that fetches financial news, economic calendar events, and current affairs, uses Gemini for analysis, and can push results to Discord. Includes a Vercel Cron Job for 24/7 automated pushes.",
   "files": [
     "index.html",
     "index.js",
     "index.tsx",
     "index.css",
-    "api/getNews.ts",
+    "api/getDashboardData.ts",
     "api/sendToDiscord.ts",
     "api/runScheduledPush.ts",
     "vercel.json",

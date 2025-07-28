@@ -1,44 +1,30 @@
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { jsx, jsxs } from "react/jsx-runtime";
 
-// 擴展 RSS 來源列表
-const RSS_FEEDS = [
-    { name: "Investing.com - 主要新聞", url: "https://www.investing.com/rss/news_25.rss" },
-    { name: "Investing.com - 加密貨幣", url: "https://www.investing.com/rss/news_301.rss" },
-    { name: "Investing.com - 外匯", url: "https://www.investing.com/rss/news_1.rss" },
-    { name: "DailyFX - 市場新聞", url: "https://www.dailyfx.com/feeds/market-news" },
-    { name: "Reuters - 市場", url: "https://www.reuters.com/pf/api/v3/content/fetch/articles-by-section-id-v1?query=%7B%22section_id%22%3A%22%2Fmarkets%2F%22%2C%22size%22%3A10%2C%22website%22%3A%22reuters%22%7D" }
-];
-
 const App = () => {
-  const [articles, setArticles] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [dashboardData, setDashboardData] = useState({});
+  const [loading, setLoading] = useState({ news: true, calendar: true, trump: true });
   const [error, setError] = useState(null);
-  const [selectedFeed, setSelectedFeed] = useState(RSS_FEEDS[0].url);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [activeTab, setActiveTab] = useState('news');
   const [discordStatus, setDiscordStatus] = useState(null);
   const [isSendingToDiscord, setIsSendingToDiscord] = useState(false);
-  
-  const intervalRef = useRef(null);
-  
-  const fetchAndProcessNews = useCallback(async () => {
-    setLoading(true);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  const fetchDashboardData = useCallback(async () => {
+    setLoading({ news: true, calendar: true, trump: true });
     setError(null);
     setDiscordStatus(null);
     
     try {
-      const apiUrl = `/api/getNews?feedUrl=${encodeURIComponent(selectedFeed)}`;
-      const response = await fetch(apiUrl);
-      const data = await response.json();
-
+      const response = await fetch('/api/getDashboardData');
       if (!response.ok) {
-        throw new Error(data.error || '從後端獲取新聞失敗');
+        const errorData = await response.json();
+        throw new Error(errorData.error || '從後端獲取儀表板數據失敗');
       }
-
-      setArticles(data);
-
+      const data = await response.json();
+      setDashboardData(data);
     } catch (err) {
       console.error("處理過程中發生錯誤:", err);
       let errorMessage = "發生未知錯誤，請檢查主控台。";
@@ -47,42 +33,72 @@ const App = () => {
       }
       setError(errorMessage);
     } finally {
-      setLoading(false);
+      setLoading({ news: false, calendar: false, trump: false });
     }
-  }, [selectedFeed]);
-
-  // Effect for fetching data on feed change or manual refresh
-  useEffect(() => {
-    fetchAndProcessNews();
-  }, [fetchAndProcessNews, refreshTrigger]);
-
-  // Effect for automatic refresh timer FOR THE VIEW, not for pushing
-  useEffect(() => {
-    if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-    }
-    // Refresh the view every 5 minutes
-    intervalRef.current = window.setInterval(() => {
-        setRefreshTrigger(prev => prev + 1); 
-    }, 5 * 60 * 1000); 
-
-    return () => {
-        if (intervalRef.current) {
-            clearInterval(intervalRef.current);
-        }
-    };
   }, []);
 
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData, refreshTrigger]);
+
+  const getCountryFlag = (countryCode) => {
+    const flags = {
+        'US': '🇺🇸', 'CN': '🇨🇳', 'JP': '🇯🇵', 'DE': '🇩🇪', 'GB': '🇬🇧', 'EU': '🇪🇺', 'FR': '🇫🇷', 'IT': '🇮🇹', 'CA': '🇨🇦', 'AU': '🇦🇺', 'NZ': '🇳🇿', 'CH': '🇨🇭'
+    };
+    return flags[countryCode.toUpperCase()] || '🏳️';
+  };
+  
+  const getImportanceEmoji = (importance) => {
+      switch(importance) {
+          case 'High': return '🔥';
+          case 'Medium': return '⚠️';
+          case 'Low': return '✅';
+          default: return '';
+      }
+  };
+
   const handleSendToDiscord = useCallback(async () => {
-    if (articles.length === 0 || isSendingToDiscord) return;
+    if (isSendingToDiscord) return;
     setIsSendingToDiscord(true);
     setDiscordStatus(null);
     
-    const feedName = RSS_FEEDS.find(feed => feed.url === selectedFeed)?.name || "財經新聞";
-    let content = `**${feedName} - AI 摘要 (手動發送 - ${new Date().toLocaleString()})**\n\n`;
-    articles.forEach(article => {
-        content += `> **[${article.eventName}](${article.link})** (${article.importance})\n> ${article.summary}\n\n`;
-    });
+    const { financialNews, cryptoNews, calendar, trumpTracker } = dashboardData;
+    let content = `**AI 每日財經洞察 (${new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })})**\n\n`;
+
+    if (financialNews && financialNews.length > 0) {
+        content += `--- 📰 **主要財經新聞** ---\n\n`;
+        financialNews.forEach(article => {
+            content += `> **[${article.eventName}](${article.link})** (${article.importance})\n> ${article.summary}\n\n`;
+        });
+    }
+    
+    if (cryptoNews && cryptoNews.length > 0) {
+        content += `--- 📈 **加密貨幣新聞** ---\n\n`;
+        cryptoNews.forEach(article => {
+            content += `> **[${article.eventName}](${article.link})** (${article.importance})\n> ${article.summary}\n\n`;
+        });
+    }
+
+    if (calendar && calendar.length > 0) {
+        content += `--- 🗓️ **本週財經日曆** ---\n\n`;
+        calendar.slice(0, 7).forEach(event => {
+             content += `> **${event.date.substring(5)} ${event.time}** ${getCountryFlag(event.country)} ${event.eventName} (${getImportanceEmoji(event.importance)} ${event.importance})\n`;
+        });
+        content += `\n`;
+    }
+
+    if (trumpTracker) {
+        content += `--- 🦅 **川普動態** ---\n\n`;
+        if (trumpTracker.schedule && trumpTracker.schedule.length > 0) {
+            content += `> **🎤 行程與演講:**\n`;
+            trumpTracker.schedule.forEach(item => {
+                content += `> - **${item.date.substring(5)} ${item.time}:** ${item.eventDescription}\n`;
+            });
+        }
+        if (trumpTracker.topPost && trumpTracker.topPost.postContent) {
+             content += `> **💬 [Truth Social 熱門](${trumpTracker.topPost.url}):**\n> "${trumpTracker.topPost.postContent}"\n`;
+        }
+    }
 
     try {
         const response = await fetch('/api/sendToDiscord', {
@@ -101,9 +117,105 @@ const App = () => {
         console.error(err);
     } finally {
         setIsSendingToDiscord(false);
-        setTimeout(() => setDiscordStatus(null), 5000); // Hide status after 5s
+        setTimeout(() => setDiscordStatus(null), 5000);
     }
-  }, [articles, selectedFeed, isSendingToDiscord]);
+  }, [dashboardData, isSendingToDiscord]);
+  
+  const renderNews = (title, articles, isLoading) => jsxs("div", {
+    className: "news-section",
+    children: [
+      jsx("h3", { children: title }),
+      isLoading && jsx("div", { className: "loader small" }),
+      !isLoading && articles && articles.length > 0 ? jsx("div", {
+        className: "articles-grid",
+        children: articles.map((article, index) => jsxs("article", {
+          className: "article-card",
+          children: [
+            jsxs("div", {
+              className: "card-header",
+              children: [
+                jsx("h2", { children: jsx("a", { href: article.link, target: "_blank", rel: "noopener noreferrer", children: article.eventName }) }),
+                jsx("span", { className: `importance-badge importance-${article.importance}`, children: article.importance })
+              ]
+            }),
+            jsx("div", { className: "card-body", children: jsx("p", { children: article.summary }) })
+          ]
+        }, index))
+      }) : !isLoading && jsx("p", { children: "目前沒有可顯示的新聞。" })
+    ]
+  });
+
+  const renderCalendar = (events, isLoading) => jsx("div", {
+    className: "calendar-section",
+    children: [
+      isLoading && jsx("div", { className: "loader small" }),
+      !isLoading && events && events.length > 0 ? jsx("ul", {
+        className: "calendar-list",
+        children: events.map((event, index) => jsxs("li", {
+          className: "calendar-item",
+          children: [
+            jsxs("div", {
+              className: "calendar-time",
+              children: [
+                jsx("span", { className: "date", children: event.date }),
+                jsx("span", { className: "time", children: event.time })
+              ]
+            }),
+            jsxs("div", {
+              className: "calendar-details",
+              children: [
+                jsx("span", { className: "country-flag", children: getCountryFlag(event.country) }),
+                jsx("span", { className: "event-name", children: event.eventName })
+              ]
+            }),
+            jsxs("div", {
+              className: `calendar-importance importance-${event.importance}`,
+              children: [getImportanceEmoji(event.importance), " ", event.importance]
+            })
+          ]
+        }, index))
+      }) : !isLoading && jsx("p", { children: "未能獲取未來一週的財經日曆。" })
+    ]
+  });
+
+  const renderTrumpTracker = (data, isLoading) => jsx("div", {
+    className: "trump-tracker-section",
+    children: [
+      isLoading && jsx("div", { className: "loader small" }),
+      !isLoading && data ? jsx("div", {
+        className: "trump-grid",
+        children: [
+          jsxs("div", {
+            className: "trump-card",
+            children: [
+              jsx("h4", { children: "🎤 行程與演講 (今明兩天)" }),
+              data.schedule && data.schedule.length > 0 ? jsx("ul", {
+                children: data.schedule.map((item, index) => jsxs("li", {
+                  children: [
+                    jsx("strong", { children: `${item.date.substring(5)} ${item.time}:` }),
+                    " ",
+                    item.eventDescription
+                  ]
+                }, index))
+              }) : jsx("p", { children: "目前沒有已知的公開行程。" })
+            ]
+          }),
+          jsxs("div", {
+            className: "trump-card",
+            children: [
+              jsx("h4", { children: "💬 Truth Social 當日熱門" }),
+              data.topPost && data.topPost.postContent ? jsxs("p", {
+                children: [
+                  `"${data.topPost.postContent}"`,
+                  jsx("a", { href: data.topPost.url, target: "_blank", rel: "noopener noreferrer", className: "source-link", children: " (來源)" })
+                ]
+              }) : jsx("p", { children: "未能獲取今日熱門貼文。" })
+            ]
+          })
+        ]
+      }) : !isLoading && jsx("p", { children: "未能獲取川普的相關動態。" })
+    ]
+  });
 
   return jsxs("div", {
     className: "app-container",
@@ -111,8 +223,8 @@ const App = () => {
       jsxs("header", {
         className: "header",
         children: [
-          jsx("h1", { children: "AI Financial News Assistant" }),
-          jsx("p", { children: "由 Gemini 分析的最新財經動態" })
+          jsx("h1", { children: "AI Financial Insight Dashboard" }),
+          jsx("p", { children: "由 Gemini 分析的最新財經動態、日曆與時事" })
         ]
       }),
       jsxs("div", {
@@ -121,34 +233,21 @@ const App = () => {
           jsxs("div", {
             className: "control-group",
             children: [
-              jsx("label", { htmlFor: "feed-select", children: "新聞來源:" }),
-              jsx("select", {
-                id: "feed-select",
-                value: selectedFeed,
-                onChange: e => setSelectedFeed(e.target.value),
-                disabled: loading,
-                children: RSS_FEEDS.map(feed => jsx("option", { value: feed.url, children: feed.name }, feed.url))
-              })
-            ]
-          }),
-          jsxs("div", {
-            className: "control-group",
-            children: [
               jsx("button", {
                 onClick: () => setRefreshTrigger(prev => prev + 1),
-                disabled: loading,
-                children: loading ? '刷新中...' : '立即刷新'
+                disabled: Object.values(loading).some(v => v),
+                children: Object.values(loading).some(v => v) ? '刷新中...' : '立即刷新'
               }),
               jsx("button", {
                 onClick: handleSendToDiscord,
-                disabled: loading || articles.length === 0 || isSendingToDiscord,
+                disabled: isSendingToDiscord || Object.values(loading).some(v => v),
                 children: isSendingToDiscord ? '發送中...' : '手動推送到 Discord'
               })
             ]
           }),
           jsx("div", {
             className: "auto-push-status",
-            children: jsx("p", { children: "ℹ️ 每日自動推送已啟用 (台灣時間晚上 8:30)。" })
+            children: jsx("p", { children: "ℹ️ 每日自動摘要將於台灣時間晚上 8:30 推送到 Discord。" })
           })
         ]
       }),
@@ -158,48 +257,35 @@ const App = () => {
       }),
       jsxs("main", {
         children: [
-          loading && jsxs("div", {
-            className: "loader-container",
+          jsxs("div", {
+            className: "tabs",
             children: [
-              jsx("div", { className: "loader" }),
-              jsx("p", { children: `正在從 ${RSS_FEEDS.find(f => f.url === selectedFeed)?.name || '來源'} 獲取並分析新聞...` })
+              jsx("button", { className: `tab-button ${activeTab === 'news' ? 'active' : ''}`, onClick: () => setActiveTab('news'), children: "📰 新聞摘要" }),
+              jsx("button", { className: `tab-button ${activeTab === 'calendar' ? 'active' : ''}`, onClick: () => setActiveTab('calendar'), children: "🗓️ 財經日曆" }),
+              jsx("button", { className: `tab-button ${activeTab === 'trump' ? 'active' : ''}`, onClick: () => setActiveTab('trump'), children: "🦅 川普動態" })
             ]
           }),
-          error && jsxs("div", {
-            className: "error-container",
-            children: [
-              jsx("h2", { children: "糟糕，出錯了！" }),
-              jsx("p", { children: error })
-            ]
-          }),
-          !loading && !error && jsx("div", {
-            className: "articles-grid",
-            children: articles.length > 0 ? articles.map((article, index) => jsxs("article", {
-              className: "article-card",
+          jsx("div", {
+            className: "tab-content",
+            children: error ? jsxs("div", {
+              className: "error-container",
               children: [
-                jsxs("div", {
-                  className: "card-header",
+                jsx("h2", { children: "糟糕，出錯了！" }),
+                jsx("p", { children: error })
+              ]
+            }) : jsxs(React.Fragment, {
+              children: [
+                activeTab === 'news' && jsx("div", {
+                  className: "news-container",
                   children: [
-                    jsx("h2", {
-                      children: jsx("a", {
-                        href: article.link,
-                        target: "_blank",
-                        rel: "noopener noreferrer",
-                        children: article.eventName
-                      })
-                    }),
-                    jsx("span", {
-                      className: `importance-badge importance-${article.importance}`,
-                      children: article.importance
-                    })
+                    renderNews("主要財經新聞", dashboardData.financialNews, loading.news),
+                    renderNews("加密貨幣新聞", dashboardData.cryptoNews, loading.news)
                   ]
                 }),
-                jsx("div", {
-                  className: "card-body",
-                  children: jsx("p", { children: article.summary })
-                })
+                activeTab === 'calendar' && renderCalendar(dashboardData.calendar, loading.calendar),
+                activeTab === 'trump' && renderTrumpTracker(dashboardData.trumpTracker, loading.trump)
               ]
-            }, index)) : jsx("p", { children: "目前沒有可顯示的財經新聞，或 AI 未能從來源中提取有效資訊。" })
+            })
           })
         ]
       })
