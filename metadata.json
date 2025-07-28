@@ -1,0 +1,4 @@
+{
+  "name": "AI Financial News Assistant",
+  "description": "An app that fetches financial news from various RSS feeds, uses the Gemini API for analysis and summarization, and can push results to a Discord channel. Includes auto-refresh functionality."
+}
