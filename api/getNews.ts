@@ -19,8 +19,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: "Missing or invalid feedUrl query parameter." });
     }
 
-    // A more reliable proxy
-    const PROXY_URL = `https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`;
     const apiKey = process.env.API_KEY;
 
     if (!apiKey) {
@@ -29,46 +27,47 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-        // 1. Fetch RSS Feed
-        const response = await fetch(PROXY_URL);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch RSS feed from proxy. Status: ${response.status}`);
-        }
-        const rawText = await response.text();
-
-        // 2. Parse content based on source format
         let newsContent: string;
         // Increase limit to get a better selection for the top 4
         const ARTICLE_LIMIT = 10;
 
+        // Use different proxies based on the source for better reliability
         if (feedUrl.includes("reuters.com")) {
-            const json = JSON.parse(rawText);
+            // Use a reliable CORS proxy for the Reuters JSON API
+            const PROXY_URL = `https://corsproxy.io/?${encodeURIComponent(feedUrl)}`;
+            const response = await fetch(PROXY_URL);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch Reuters data from proxy. Status: ${response.status}`);
+            }
+            const json = await response.json();
             newsContent = json.result.articles.slice(0, ARTICLE_LIMIT).map((item: any) =>
                 `Title: ${item.title}\nDescription: ${item.description || ''}\nLink: ${item.canonical_url || ''}\nPublishedAt: ${item.published_at || ''}`
             ).join("\n\n---\n\n");
-        } else { // Assume XML-based feeds
-            const items = rawText.match(/<item>[\s\S]*?<\/item>/g) || [];
-            if (items.length === 0) {
+        } else {
+            // Use rss2json for standard RSS feeds, which is more stable
+            const PROXY_URL = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`;
+            const response = await fetch(PROXY_URL);
+             if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Failed to fetch from rss2json proxy. Status: ${response.status}. Body: ${errorText}`);
+            }
+            const json = await response.json();
+
+            if (json.status !== 'ok') {
+                throw new Error(`rss2json API error: ${json.message}`);
+            }
+            
+            if (!json.items || json.items.length === 0) {
                  return res.status(200).json([]);
             }
-            newsContent = items.slice(0, ARTICLE_LIMIT).map(item => {
-                const titleMatch = item.match(/<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/s);
-                const title = titleMatch ? titleMatch[1].trim() : 'No Title';
 
-                const linkMatch = item.match(/<link>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/link>/s);
-                const link = linkMatch ? linkMatch[1].trim() : '#';
-                
-                const pubDateMatch = item.match(/<pubDate>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/pubDate>/s);
-                const pubDate = pubDateMatch ? pubDateMatch[1].trim() : '';
-
-                const descriptionMatch = item.match(/<description>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/description>/s);
-                const rawDescription = descriptionMatch ? descriptionMatch[1].trim() : '';
+            newsContent = json.items.slice(0, ARTICLE_LIMIT).map((item: any) => {
+                const rawDescription = item.description || '';
                 const cleanDescription = rawDescription.replace(/<[^>]*>?/gm, '').substring(0, 500);
-
-                return `Title: ${title}\nDescription: ${cleanDescription}\nLink: ${link}\nPublishedAt: ${pubDate}`;
+                return `Title: ${item.title || 'No Title'}\nDescription: ${cleanDescription}\nLink: ${item.link || '#'}\nPublishedAt: ${item.pubDate || ''}`;
             }).join("\n\n---\n\n");
         }
-
+        
         if (!newsContent.trim()) {
             return res.status(200).json([]);
         }
