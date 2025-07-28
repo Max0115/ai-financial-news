@@ -84,9 +84,25 @@ async function sendToDiscord(webhookUrl: string, articles: any[], feedName: stri
 
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-    if (req.headers['x-vercel-cron-secret'] !== process.env.CRON_SECRET) {
+    // Log every invocation attempt to see if the cron is firing at all.
+    console.log(`Cron job invocation received at: ${new Date().toISOString()}`);
+
+    // --- Security Check ---
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret) {
+        console.error("CRON_SECRET environment variable is not set. Aborting cron job.");
+        // Return 500 because this is a server configuration error, not an auth failure.
+        return res.status(500).send('Server configuration error: CRON_SECRET is not set.');
+    }
+    
+    if (req.headers['x-vercel-cron-secret'] !== cronSecret) {
+      console.error("Unauthorized cron job access attempt: Invalid secret.");
       return res.status(401).send('Unauthorized');
     }
+    
+    // --- End Security Check ---
+
+    console.log("Cron job authorized. Proceeding with execution.");
     
     const apiKey = process.env.API_KEY;
     const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
