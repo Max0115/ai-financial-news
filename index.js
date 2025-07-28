@@ -9,27 +9,6 @@ const RSS_FEEDS = [
     { name: "Reuters - 市場", url: "https://www.reuters.com/pf/api/v3/content/fetch/articles-by-section-id-v1?query=%7B%22section_id%22%3A%22%2Fmarkets%2F%22%2C%22size%22%3A10%2C%22website%22%3A%22reuters%22%7D" }
 ];
 
-// Helper function to format dates as "time ago"
-function formatTimeAgo(dateString) {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    const now = new Date();
-    const seconds = Math.floor((now - date) / 1000);
-
-    let interval = seconds / 31536000;
-    if (interval > 1) return `${Math.floor(interval)} 年前`;
-    interval = seconds / 2592000;
-    if (interval > 1) return `${Math.floor(interval)} 個月前`;
-    interval = seconds / 86400;
-    if (interval > 1) return `${Math.floor(interval)} 天前`;
-    interval = seconds / 3600;
-    if (interval > 1) return `${Math.floor(interval)} 小時前`;
-    interval = seconds / 60;
-    if (interval > 1) return `${Math.floor(interval)} 分鐘前`;
-    return `${Math.floor(seconds)} 秒前`;
-}
-
-
 const App = () => {
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -98,8 +77,7 @@ const App = () => {
     const feedName = RSS_FEEDS.find(feed => feed.url === selectedFeed)?.name || "財經新聞";
     let content = `**${feedName} - AI 摘要 (${new Date().toLocaleString()})**\n\n`;
     articles.forEach(article => {
-        const timeAgo = formatTimeAgo(article.publicationDate);
-        content += `> **[${article.eventName}](${article.link})** (${article.importance}) - *${timeAgo}*\n> ${article.summary}\n\n`;
+        content += `> **[${article.eventName}](${article.link})** (${article.importance})\n> ${article.summary}\n\n`;
     });
 
     try {
@@ -124,77 +102,74 @@ const App = () => {
   };
 
   return (
-    React.createElement("div", { className: "app-container" },
-      React.createElement("header", { className: "header" },
-        React.createElement("h1", null, "AI Financial News Assistant"),
-        React.createElement("p", null, "由 Gemini 分析的最新財經動態")
-      ),
+    <div className="app-container">
+      <header className="header">
+        <h1>AI Financial News Assistant</h1>
+        <p>由 Gemini 分析的最新財經動態</p>
+      </header>
 
-      React.createElement("div", { className: "controls-panel" },
-        React.createElement("div", { className: "control-group" },
-            React.createElement("label", { htmlFor: "feed-select" }, "新聞來源:"),
-            React.createElement("select", { id: "feed-select", value: selectedFeed, onChange: e => setSelectedFeed(e.target.value), disabled: loading },
-                RSS_FEEDS.map(feed => (
-                    React.createElement("option", { key: feed.url, value: feed.url }, feed.name)
-                ))
-            )
-        ),
-        React.createElement("div", { className: "control-group" },
-            React.createElement("button", { onClick: () => setRefreshTrigger(prev => prev + 1), disabled: loading },
-                loading ? '刷新中...' : '立即刷新'
-            ),
-            React.createElement("button", { onClick: handleSendToDiscord, disabled: loading || articles.length === 0 || isSendingToDiscord },
-                isSendingToDiscord ? '發送中...' : '推送到 Discord'
-            )
-        )
-      ),
+      <div className="controls-panel">
+        <div className="control-group">
+            <label htmlFor="feed-select">新聞來源:</label>
+            <select id="feed-select" value={selectedFeed} onChange={e => setSelectedFeed(e.target.value)} disabled={loading}>
+                {RSS_FEEDS.map(feed => (
+                    <option key={feed.url} value={feed.url}>{feed.name}</option>
+                ))}
+            </select>
+        </div>
+        <div className="control-group">
+            <button onClick={() => setRefreshTrigger(prev => prev + 1)} disabled={loading}>
+                {loading ? '刷新中...' : '立即刷新'}
+            </button>
+            <button onClick={handleSendToDiscord} disabled={loading || articles.length === 0 || isSendingToDiscord}>
+                {isSendingToDiscord ? '發送中...' : '推送到 Discord'}
+            </button>
+        </div>
+      </div>
         
-      discordStatus && (
-        React.createElement("div", { className: `discord-status ${discordStatus.type} show` },
-            discordStatus.message
-        )
-      ),
+      {discordStatus && (
+        <div className={`discord-status ${discordStatus.type} show`}>
+            {discordStatus.message}
+        </div>
+      )}
 
-      React.createElement("main", null,
-        loading && (
-          React.createElement("div", { className: "loader-container" },
-            React.createElement("div", { className: "loader" }),
-            React.createElement("p", null, `正在從 ${RSS_FEEDS.find(f => f.url === selectedFeed)?.name || '來源'} 獲取並分析新聞...`)
-          )
-        ),
-        error && (
-            React.createElement("div", { className: "error-container" },
-                React.createElement("h2", null, "糟糕，出錯了！"),
-                React.createElement("p", null, error)
-            )
-        ),
-        !loading && !error && (
-          React.createElement("div", { className: "articles-grid" },
-            articles.length > 0 ? articles.map((article, index) => (
-              React.createElement("article", { key: index, className: "article-card" },
-                React.createElement("div", { className: "card-header" },
-                  React.createElement("h2", null,
-                    React.createElement("a", { href: article.link, target: "_blank", rel: "noopener noreferrer" },
-                      article.eventName
-                    )
-                  ),
-                  React.createElement("span", { className: `importance-badge importance-${article.importance}` }, article.importance)
-                ),
-                React.createElement("div", { className: "card-body" },
-                  React.createElement("p", null, article.summary)
-                ),
-                React.createElement("div", { className: "card-footer" },
-                  React.createElement("span", { className: "publication-date" }, formatTimeAgo(article.publicationDate))
-                )
-              )
-            )) : React.createElement("p", null, "目前沒有可顯示的財經新聞，或 AI 未能從來源中提取有效資訊。")
-          )
-        )
-      )
-    )
+      <main>
+        {loading && (
+          <div className="loader-container">
+            <div className="loader"></div>
+            <p>正在從 {RSS_FEEDS.find(f => f.url === selectedFeed)?.name || '來源'} 獲取並分析新聞...</p>
+          </div>
+        )}
+        {error && (
+            <div className="error-container">
+                <h2>糟糕，出錯了！</h2>
+                <p>{error}</p>
+            </div>
+        )}
+        {!loading && !error && (
+          <div className="articles-grid">
+            {articles.length > 0 ? articles.map((article, index) => (
+              <article key={index} className="article-card">
+                <div className="card-header">
+                  <h2>
+                    <a href={article.link} target="_blank" rel="noopener noreferrer">
+                      {article.eventName}
+                    </a>
+                  </h2>
+                  <span className={`importance-badge importance-${article.importance}`}>{article.importance}</span>
+                </div>
+                <div className="card-body">
+                  <p>{article.summary}</p>
+                </div>
+              </article>
+            )) : <p>目前沒有可顯示的財經新聞，或 AI 未能從來源中提取有效資訊。</p>}
+          </div>
+        )}
+      </main>
+    </div>
   );
 };
 
 const container = document.getElementById("root");
 const root = createRoot(container);
-root.render(React.createElement(App));
+root.render(<App />);

@@ -19,6 +19,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: "Missing or invalid feedUrl query parameter." });
     }
 
+    // A more reliable proxy
     const PROXY_URL = `https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`;
     const apiKey = process.env.API_KEY;
 
@@ -37,9 +38,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         // 2. Parse content based on source format
         let newsContent: string;
+        // Reduce the number of articles to avoid timeout
+        const ARTICLE_LIMIT = 3;
+
         if (feedUrl.includes("reuters.com")) {
             const json = JSON.parse(rawText);
-            newsContent = json.result.articles.slice(0, 8).map((item: any) =>
+            newsContent = json.result.articles.slice(0, ARTICLE_LIMIT).map((item: any) =>
                 `Title: ${item.title}\nDescription: ${item.description || ''}\nLink: ${item.canonical_url || ''}\nPublishedAt: ${item.published_at || ''}`
             ).join("\n\n---\n\n");
         } else { // Assume XML-based feeds
@@ -47,7 +51,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             if (items.length === 0) {
                  return res.status(200).json([]);
             }
-            newsContent = items.slice(0, 8).map(item => {
+            newsContent = items.slice(0, ARTICLE_LIMIT).map(item => {
                 const titleMatch = item.match(/<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/s);
                 const title = titleMatch ? titleMatch[1].trim() : 'No Title';
 
@@ -97,7 +101,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
         
         // Clean and parse the JSON response from Gemini
-        const jsonResponseText = genAIResponse.text.trim().replace(/^```json\s*/, '').replace(/```$/, '');
+        const jsonResponseText = genAIResponse.text.trim();
+        if (!jsonResponseText) {
+             console.warn("Gemini API returned an empty response.");
+             return res.status(200).json([]);
+        }
+
         const result = JSON.parse(jsonResponseText);
         res.status(200).json(result);
 
