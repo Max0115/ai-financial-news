@@ -37,15 +37,33 @@ async function analyzeNews(ai: GoogleGenAI, newsContent: string) {
 
 async function getFinancialCalendar(ai: GoogleGenAI) {
     const schema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { date: { type: Type.STRING }, time: { type: Type.STRING }, country: { type: Type.STRING }, eventName: { type: Type.STRING }, importance: { type: Type.STRING, enum: ["High", "Medium", "Low"] } }, required: ["date", "time", "country", "eventName", "importance"] } };
-    const prompt = `請提供未來一週內（從今天開始）全球最重要的財經事件日曆。請包含日期（YYYY-MM-DD）、時間（HH:MM，24小時制）、國家/地區的 ISO 3166-1 alpha-2 代碼（例如 US, EU, CN）、事件的繁體中文名稱和重要性（High, Medium, Low）。時間請轉換為台灣時間（UTC+8）。以 JSON 格式回傳。`;
+    
+    // Explicitly provide today's date to the model to prevent confusion.
+    const today = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Taipei"}));
+    const todayStr = today.toISOString().split('T')[0]; // Format: YYYY-MM-DD
+    
+    const prompt = `今天是 ${todayStr}。請提供未來一週內（從今天開始）全球最重要的財經事件日曆。請包含日期（YYYY-MM-DD）、時間（HH:MM，24小時制，台灣時間 UTC+8）、國家/地區的 ISO 3166-1 alpha-2 代碼（例如 US, EU, CN）、事件的繁體中文名稱和重要性（High, Medium, Low）。以 JSON 格式回傳。`;
+    
     try {
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash", contents: prompt,
             config: { responseMimeType: "application/json", responseSchema: schema },
         });
-        return JSON.parse(response.text.trim());
+        let events = JSON.parse(response.text.trim());
+        
+        // Sort events chronologically to ensure correct order
+        if (Array.isArray(events)) {
+            events.sort((a, b) => {
+                const dateA = new Date(`${a.date}T${a.time || '00:00'}`);
+                const dateB = new Date(`${b.date}T${b.time || '00:00'}`);
+                return dateA.getTime() - dateB.getTime();
+            });
+        }
+        
+        return events;
     } catch (e) { console.error("Error fetching financial calendar:", e); return []; }
 }
+
 
 async function getTrumpTracker(ai: GoogleGenAI) {
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });

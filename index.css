@@ -1,4 +1,3 @@
-
 :root {
   --background-color: #f0f2f5;
   --card-background: #ffffff;
@@ -230,10 +229,28 @@ body {
 .calendar-details { flex: 1; display: flex; align-items: center; gap: 0.75rem; }
 .country-flag { font-size: 1.5rem; }
 .event-name { font-size: 1.05rem; }
-.calendar-importance { font-weight: 500; padding: 0.25rem 0.5rem; border-radius: 4px; }
-.calendar-importance.importance-High { color: var(--importance-high); }
-.calendar-importance.importance-Medium { color: var(--importance-medium); }
-.calendar-importance.importance-Low { color: var(--importance-low); }
+.calendar-importance {
+    font-weight: 700;
+    padding: 0.3rem 0.7rem;
+    border-radius: 16px;
+    font-size: 0.8rem;
+    flex-shrink: 0;
+    text-align: center;
+    min-width: 90px;
+}
+.calendar-importance.importance-High {
+    background-color: var(--importance-high);
+    color: white;
+}
+.calendar-importance.importance-Medium {
+    background-color: var(--importance-medium);
+    color: var(--text-color);
+}
+.calendar-importance.importance-Low {
+    background-color: var(--importance-low);
+    color: white;
+}
+
 
 /* Trump Tracker Section */
 .trump-grid {
