@@ -40,7 +40,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (feedUrl.includes("reuters.com")) {
             const json = JSON.parse(rawText);
             newsContent = json.result.articles.slice(0, 8).map((item: any) =>
-                `Title: ${item.title}\nDescription: ${item.description || ''}\nLink: ${item.canonical_url || ''}`
+                `Title: ${item.title}\nDescription: ${item.description || ''}\nLink: ${item.canonical_url || ''}\nPublishedAt: ${item.published_at || ''}`
             ).join("\n\n---\n\n");
         } else { // Assume XML-based feeds
             const items = rawText.match(/<item>[\s\S]*?<\/item>/g) || [];
@@ -54,11 +54,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 const linkMatch = item.match(/<link>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/link>/s);
                 const link = linkMatch ? linkMatch[1].trim() : '#';
                 
+                const pubDateMatch = item.match(/<pubDate>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/pubDate>/s);
+                const pubDate = pubDateMatch ? pubDateMatch[1].trim() : '';
+
                 const descriptionMatch = item.match(/<description>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/description>/s);
                 const rawDescription = descriptionMatch ? descriptionMatch[1].trim() : '';
                 const cleanDescription = rawDescription.replace(/<[^>]*>?/gm, '').substring(0, 500);
 
-                return `Title: ${title}\nDescription: ${cleanDescription}\nLink: ${link}`;
+                return `Title: ${title}\nDescription: ${cleanDescription}\nLink: ${link}\nPublishedAt: ${pubDate}`;
             }).join("\n\n---\n\n");
         }
 
@@ -77,11 +80,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                     summary: { type: Type.STRING, description: "A brief, neutral summary of the news (2-3 sentences)." },
                     importance: { type: Type.STRING, enum: ["High", "Medium", "Low"], description: "The potential market impact: High, Medium, or Low." },
                     link: { type: Type.STRING, description: "The original URL of the news article." },
+                    publicationDate: { type: Type.STRING, description: "The publication date of the news, formatted as an ISO 8601 string." },
                 },
-                required: ["eventName", "summary", "importance", "link"],
+                required: ["eventName", "summary", "importance", "link", "publicationDate"],
             },
         };
-        const prompt = `Analyze the following financial news items. For each item, provide the event name, a short summary, its market importance (High, Medium, or Low), and its original link. Provide the output as a JSON array of objects based on the requested schema. Here are the news items:\n\n${newsContent}`;
+        const prompt = `Analyze the following financial news items. For each item, provide the event name, a short summary, its market importance (High, Medium, or Low), its original link, and its publication date. Provide the output as a JSON array of objects based on the requested schema. Here are the news items:\n\n${newsContent}`;
 
         const genAIResponse = await ai.models.generateContent({
             model: "gemini-2.5-flash",

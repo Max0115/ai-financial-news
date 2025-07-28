@@ -176,6 +176,7 @@ body {
   transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
 }
 
 .article-card:hover {
@@ -229,7 +230,23 @@ body {
   background-color: var(--importance-low);
 }
 
+.card-body {
+    margin-bottom: 1rem;
+}
+
 .card-body p {
   font-size: 1rem;
   color: #333;
+}
+
+.card-footer {
+  margin-top: auto;
+  padding-top: 1rem;
+  border-top: 1px solid var(--background-color);
+  text-align: right;
+}
+
+.publication-date {
+  font-size: 0.85rem;
+  color: var(--secondary-color);
 }
