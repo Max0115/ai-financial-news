@@ -18,8 +18,10 @@ const App = () => {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [discordStatus, setDiscordStatus] = useState(null);
   const [isSendingToDiscord, setIsSendingToDiscord] = useState(false);
+  const [isAutoPushEnabled, setIsAutoPushEnabled] = useState(false);
   
   const intervalRef = useRef(null);
+  const isInitialMount = useRef(true);
   
   const fetchAndProcessNews = useCallback(async () => {
     setLoading(true);
@@ -70,8 +72,8 @@ const App = () => {
     };
   }, []);
 
-  const handleSendToDiscord = async () => {
-    if (articles.length === 0) return;
+  const handleSendToDiscord = useCallback(async () => {
+    if (articles.length === 0 || isSendingToDiscord) return;
     setIsSendingToDiscord(true);
     setDiscordStatus(null);
     
@@ -100,7 +102,20 @@ const App = () => {
         setIsSendingToDiscord(false);
         setTimeout(() => setDiscordStatus(null), 5000); // Hide status after 5s
     }
-  };
+  }, [articles, selectedFeed, isSendingToDiscord]);
+  
+    // Effect for auto-pushing to Discord
+  useEffect(() => {
+    if (isInitialMount.current) {
+        isInitialMount.current = false;
+        return;
+    }
+
+    if (isAutoPushEnabled && articles.length > 0) {
+        handleSendToDiscord();
+    }
+  }, [articles, isAutoPushEnabled, handleSendToDiscord]);
+
 
   return jsxs("div", {
     className: "app-container",
@@ -140,6 +155,24 @@ const App = () => {
                 onClick: handleSendToDiscord,
                 disabled: loading || articles.length === 0 || isSendingToDiscord,
                 children: isSendingToDiscord ? '發送中...' : '推送到 Discord'
+              }),
+              jsxs("div", {
+                className: "toggle-switch-container",
+                children: [
+                  jsx("input", {
+                    type: "checkbox",
+                    id: "auto-push-toggle",
+                    className: "toggle-switch",
+                    checked: isAutoPushEnabled,
+                    onChange: e => setIsAutoPushEnabled(e.target.checked),
+                    disabled: loading
+                  }),
+                  jsx("label", {
+                    htmlFor: "auto-push-toggle",
+                    className: "toggle-label",
+                    children: "自動推送"
+                  })
+                ]
               })
             ]
           })
