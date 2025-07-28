@@ -1,8 +1,8 @@
 // Placed in /api/getNews.ts
-import type { IncomingMessage, ServerResponse } from "http";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { GoogleGenAI, Type } from "@google/genai";
 
-export default async function handler(req: IncomingMessage, res: ServerResponse) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Set CORS headers to allow requests from any origin
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -10,23 +10,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Handle OPTIONS preflight request for CORS
     if (req.method === 'OPTIONS') {
-        res.statusCode = 200;
-        res.end();
-        return;
+        return res.status(200).end();
     }
     
-    // Helper to send JSON responses
-    const sendJson = (statusCode: number, data: any) => {
-        res.statusCode = statusCode;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify(data));
-    };
+    const { feedUrl } = req.query;
 
-    const url = new URL(req.url!, `http://${req.headers.host}`);
-    const feedUrl = url.searchParams.get('feedUrl');
-
-    if (!feedUrl) {
-        return sendJson(400, { error: "Missing feedUrl query parameter." });
+    if (!feedUrl || typeof feedUrl !== 'string') {
+        return res.status(400).json({ error: "Missing or invalid feedUrl query parameter." });
     }
 
     const PROXY_URL = `https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`;
@@ -34,7 +24,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     if (!apiKey) {
         console.error('API_KEY environment variable is not set.');
-        return sendJson(500, { error: 'Server configuration error: API_KEY is missing.' });
+        return res.status(500).json({ error: 'Server configuration error: API_KEY is missing.' });
     }
 
     try {
@@ -55,7 +45,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         } else { // Assume XML-based feeds
             const items = rawText.match(/<item>[\s\S]*?<\/item>/g) || [];
             if (items.length === 0) {
-                 return sendJson(200, []);
+                 return res.status(200).json([]);
             }
             newsContent = items.slice(0, 8).map(item => {
                 const titleMatch = item.match(/<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/s);
@@ -70,7 +60,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         }
 
         if (!newsContent.trim()) {
-            return sendJson(200, []);
+            return res.status(200).json([]);
         }
 
         // 3. Call Gemini API for analysis
@@ -101,11 +91,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         // Clean and parse the JSON response from Gemini
         const jsonResponseText = genAIResponse.text.trim().replace(/^```json\s*/, '').replace(/```$/, '');
         const result = JSON.parse(jsonResponseText);
-        sendJson(200, result);
+        res.status(200).json(result);
 
     } catch (error) {
         console.error("Error in /api/getNews:", error);
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-        sendJson(500, { error: `Internal Server Error: ${errorMessage}` });
+        res.status(500).json({ error: `Internal Server Error: ${errorMessage}` });
     }
 }

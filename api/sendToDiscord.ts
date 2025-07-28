@@ -1,24 +1,8 @@
 // This file should be placed in the `api` directory at the root of your project.
-import type { IncomingMessage, ServerResponse } from "http";
-
-// Helper function to read the request body
-function readRequestBody(req: IncomingMessage): Promise<string> {
-    return new Promise((resolve, reject) => {
-        let body = '';
-        req.on('data', chunk => {
-            body += chunk.toString();
-        });
-        req.on('end', () => {
-            resolve(body);
-        });
-        req.on('error', err => {
-            reject(err);
-        });
-    });
-}
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 // The main function that Vercel will execute
-export default async function handler(req: IncomingMessage, res: ServerResponse) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Set CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -26,34 +10,24 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // Handle OPTIONS preflight request
     if (req.method === 'OPTIONS') {
-        res.statusCode = 200;
-        res.end();
-        return;
+        return res.status(200).end();
     }
 
-    // Helper to send JSON responses
-    const sendJson = (statusCode: number, data: any) => {
-        res.statusCode = statusCode;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify(data));
-    };
-
     if (req.method !== 'POST') {
-        return sendJson(405, { error: 'Method Not Allowed' });
+        return res.status(405).json({ error: 'Method Not Allowed' });
     }
 
     const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
     if (!webhookUrl) {
         console.error('DISCORD_WEBHOOK_URL environment variable is not set.');
-        return sendJson(500, { error: 'Server configuration error: Discord webhook URL is missing.' });
+        return res.status(500).json({ error: 'Server configuration error: Discord webhook URL is missing.' });
     }
 
     try {
-        const bodyString = await readRequestBody(req);
-        const { message } = JSON.parse(bodyString);
+        const { message } = req.body;
 
         if (!message || typeof message !== 'string') {
-            return sendJson(400, { error: 'Message is required and must be a string.' });
+            return res.status(400).json({ error: 'Message is required and must be a string.' });
         }
 
         const payload = { content: message };
@@ -67,14 +41,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         if (!discordResponse.ok) {
             const errorBody = await discordResponse.json();
             console.error('Discord API error:', errorBody);
-            return sendJson(discordResponse.status, { error: `Discord API Error: ${errorBody.message || 'Unknown error'}` });
+            return res.status(discordResponse.status).json({ error: `Discord API Error: ${errorBody.message || 'Unknown error'}` });
         }
 
-        sendJson(200, { success: true, message: 'Message sent to Discord.' });
+        res.status(200).json({ success: true, message: 'Message sent to Discord.' });
 
     } catch (error) {
         console.error('Failed to send message to Discord:', error);
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-        sendJson(500, { error: `An internal error occurred while sending the message: ${errorMessage}` });
+        res.status(500).json({ error: `An internal error occurred while sending the message: ${errorMessage}` });
     }
 }
