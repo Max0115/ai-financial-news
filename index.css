@@ -197,6 +197,17 @@ body {
   flex-grow: 1;
 }
 
+.card-header h2 a {
+  text-decoration: none;
+  color: inherit;
+  transition: color 0.2s ease-in-out;
+}
+
+.card-header h2 a:hover {
+  color: var(--primary-color);
+  text-decoration: underline;
+}
+
 .importance-badge {
   padding: 0.3rem 0.7rem;
   border-radius: 16px;

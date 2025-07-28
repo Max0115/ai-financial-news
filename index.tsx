@@ -17,6 +17,7 @@ interface FinancialArticle {
   eventName: string;
   summary: string;
   importance: 'High' | 'Medium' | 'Low';
+  link: string;
 }
 
 interface DiscordStatus {
@@ -92,7 +93,7 @@ const App: React.FC = () => {
     const feedName = RSS_FEEDS.find(feed => feed.url === selectedFeed)?.name || "財經新聞";
     let content = `**${feedName} - AI 摘要 (${new Date().toLocaleString()})**\n\n`;
     articles.forEach(article => {
-        content += `> **${article.eventName}** (${article.importance})\n> ${article.summary}\n\n`;
+        content += `> **[${article.eventName}](${article.link})** (${article.importance})\n> ${article.summary}\n\n`;
     });
 
     try {
@@ -166,7 +167,11 @@ const App: React.FC = () => {
             {articles.length > 0 ? articles.map((article, index) => (
               <article key={index} className="article-card">
                 <div className="card-header">
-                  <h2>{article.eventName}</h2>
+                  <h2>
+                    <a href={article.link} target="_blank" rel="noopener noreferrer">
+                      {article.eventName}
+                    </a>
+                  </h2>
                   <span className={`importance-badge importance-${article.importance}`}>{article.importance}</span>
                 </div>
                 <div className="card-body">
