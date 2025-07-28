@@ -1,3 +1,4 @@
+
 // Placed in /api/getNews.ts
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { GoogleGenAI, Type } from "@google/genai";
@@ -28,8 +29,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     try {
         let newsContent: string;
-        // Increase limit to get a better selection for the top 4
-        const ARTICLE_LIMIT = 10;
+        // Increase limit to get a better selection
+        const ARTICLE_LIMIT = 15;
 
         // Use different proxies based on the source for better reliability
         if (feedUrl.includes("reuters.com")) {
@@ -88,10 +89,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 required: ["eventName", "summary", "importance", "link", "publicationDate"],
             },
         };
-        const prompt = `請從以下財經新聞列表中，選出最重要的四則新聞。針對這四則新聞，請執行以下任務：
+        const prompt = `請從以下財經新聞列表中，選出最重要的五則新聞。針對這五則新聞，請執行以下任務：
 1. 將 eventName (事件名稱) 和 summary (摘要) 翻譯成自然流暢、口語化的繁體中文。
 2. 保持 importance (重要性)、link (原始連結) 和 publicationDate (發布日期) 不變。
-3. 最終請以 JSON 陣列的格式回傳這四則經過處理的新聞，並嚴格遵守提供的 schema。如果提供的新聞少于四則，請處理所有新聞。
+3. 最終請以 JSON 陣列的格式回傳這五則經過處理的新聞，並嚴格遵守提供的 schema。如果提供的新聞少于五則，請處理所有新聞。
 
 這是新聞列表：\n\n${newsContent}`;
 

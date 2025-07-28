@@ -6,6 +6,7 @@ import { jsx, jsxs } from "react/jsx-runtime";
 // 擴展 RSS 來源列表
 const RSS_FEEDS = [
     { name: "Investing.com - 主要新聞", url: "https://www.investing.com/rss/news_25.rss" },
+    { name: "Investing.com - 加密貨幣", url: "https://www.investing.com/rss/news_301.rss" },
     { name: "Investing.com - 外匯", url: "https://www.investing.com/rss/news_1.rss" },
     { name: "DailyFX - 市場新聞", url: "https://www.dailyfx.com/feeds/market-news" },
     { name: "Reuters - 市場", url: "https://www.reuters.com/pf/api/v3/content/fetch/articles-by-section-id-v1?query=%7B%22section_id%22%3A%22%2Fmarkets%2F%22%2C%22size%22%3A10%2C%22website%22%3A%22reuters%22%7D" }
@@ -147,7 +148,7 @@ const App = () => {
           }),
           jsx("div", {
             className: "auto-push-status",
-            children: jsx("p", { children: "ℹ️ 後端自動推送已啟用，每 5 分鐘更新一次。" })
+            children: jsx("p", { children: "ℹ️ 每日自動推送已啟用 (台灣時間晚上 8:30)。" })
           })
         ]
       }),

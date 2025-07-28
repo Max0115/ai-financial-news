@@ -1,11 +1,11 @@
+
 // Placed in /api/runScheduledPush.ts
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { GoogleGenAI, Type } from "@google/genai";
 
-// 共享的邏輯函數，也可以從其他文件中導入
 async function getNewsFromSource(feedUrl: string) {
     let newsContent: string;
-    const ARTICLE_LIMIT = 10;
+    const ARTICLE_LIMIT = 15; // Fetch more to give AI a better selection
 
     if (feedUrl.includes("reuters.com")) {
         const PROXY_URL = `https://corsproxy.io/?${encodeURIComponent(feedUrl)}`;
@@ -50,10 +50,10 @@ async function analyzeWithGemini(apiKey: string, newsContent: string) {
             required: ["eventName", "summary", "importance", "link", "publicationDate"],
         },
     };
-    const prompt = `請從以下財經新聞列表中，選出最重要的四則新聞。針對這四則新聞，請執行以下任務：
+    const prompt = `請從以下財經新聞列表中，選出最重要的五則新聞。針對這五則新聞，請執行以下任務：
 1. 將 eventName (事件名稱) 和 summary (摘要) 翻譯成自然流暢、口語化的繁體中文。
 2. 保持 importance (重要性)、link (原始連結) 和 publicationDate (發布日期) 不變。
-3. 最終請以 JSON 陣列的格式回傳這四則經過處理的新聞，並嚴格遵守提供的 schema。如果提供的新聞少于四則，請處理所有新聞。
+3. 最終請以 JSON 陣列的格式回傳這五則經過處理的新聞，並嚴格遵守提供的 schema。如果提供的新聞少于五則，請處理所有新聞。
 
 這是新聞列表：\n\n${newsContent}`;
 
@@ -66,12 +66,24 @@ async function analyzeWithGemini(apiKey: string, newsContent: string) {
     return jsonResponseText ? JSON.parse(jsonResponseText) : [];
 }
 
-async function sendToDiscord(webhookUrl: string, articles: any[], feedName: string) {
-    if (articles.length === 0) return;
-    let content = `**${feedName} - AI 自動摘要 (${new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })})**\n\n`;
-    articles.forEach(article => {
-        content += `> **[${article.eventName}](${article.link})** (${article.importance})\n> ${article.summary}\n\n`;
-    });
+async function sendToDiscord(webhookUrl: string, financialArticles: any[], cryptoArticles: any[]) {
+    if (financialArticles.length === 0 && cryptoArticles.length === 0) return;
+
+    let content = `**AI 每日財經與加密貨幣摘要 (${new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })})**\n\n`;
+    
+    if (financialArticles.length > 0) {
+        content += `--- **主要財經新聞** ---\n\n`;
+        financialArticles.forEach(article => {
+            content += `> **[${article.eventName}](${article.link})** (${article.importance})\n> ${article.summary}\n\n`;
+        });
+    }
+
+    if (cryptoArticles.length > 0) {
+        content += `--- **加密貨幣新聞** ---\n\n`;
+        cryptoArticles.forEach(article => {
+            content += `> **[${article.eventName}](${article.link})** (${article.importance})\n> ${article.summary}\n\n`;
+        });
+    }
 
     const discordResponse = await fetch(webhookUrl, {
         method: 'POST',
@@ -87,25 +99,20 @@ async function sendToDiscord(webhookUrl: string, articles: any[], feedName: stri
 
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-    // Log every invocation attempt to see if the cron is firing at all.
     console.log(`Cron job invocation received at: ${new Date().toISOString()}`);
 
-    // --- Security Check ---
     const cronSecret = process.env.CRON_SECRET;
     if (!cronSecret) {
         console.error("CRON_SECRET environment variable is not set. Aborting cron job.");
-        // Return 500 because this is a server configuration error, not an auth failure.
         return res.status(500).send('Server configuration error: CRON_SECRET is not set.');
     }
     
     const requestSecret = req.headers['x-vercel-cron-secret'];
     if (requestSecret !== cronSecret) {
-      console.error(`Unauthorized cron job access attempt. Expected secret: ...${cronSecret.slice(-4)}, Received: ${typeof requestSecret === 'string' ? '...' + requestSecret.slice(-4) : 'undefined'}`);
+      console.error(`Unauthorized cron job access attempt.`);
       return res.status(401).send('Unauthorized');
     }
     
-    // --- End Security Check ---
-
     console.log("Cron job authorized. Proceeding with execution.");
     
     const apiKey = process.env.API_KEY;
@@ -117,24 +124,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-        // Default feed for the cron job
-        const defaultFeed = { name: "Investing.com - 主要新聞", url: "https://www.investing.com/rss/news_25.rss" };
-        
-        console.log(`Cron job started: Fetching news from ${defaultFeed.name}`);
-        
-        const newsContent = await getNewsFromSource(defaultFeed.url);
-        if (!newsContent || !newsContent.trim()) {
-            console.log("No news content fetched. Exiting job.");
-            return res.status(200).json({ message: "No new content to process." });
-        }
-        
-        const analyzedArticles = await analyzeWithGemini(apiKey, newsContent);
-        if (analyzedArticles.length === 0) {
-            console.log("Gemini did not return any articles. Exiting job.");
-            return res.status(200).json({ message: "AI analysis resulted in no articles." });
-        }
+        const financialFeed = { name: "Investing.com - 主要新聞", url: "https://www.investing.com/rss/news_25.rss" };
+        const cryptoFeed = { name: "Investing.com - 加密貨幣", url: "https://www.investing.com/rss/news_301.rss" };
 
-        await sendToDiscord(webhookUrl, analyzedArticles, defaultFeed.name);
+        console.log(`Cron job started: Fetching news from ${financialFeed.name} and ${cryptoFeed.name}`);
+        
+        // Fetch and analyze financial news
+        const financialNewsContent = await getNewsFromSource(financialFeed.url);
+        const financialArticles = financialNewsContent ? await analyzeWithGemini(apiKey, financialNewsContent) : [];
+        console.log(`Analyzed ${financialArticles.length} financial articles.`);
+        
+        // Fetch and analyze crypto news
+        const cryptoNewsContent = await getNewsFromSource(cryptoFeed.url);
+        const cryptoArticles = cryptoNewsContent ? await analyzeWithGemini(apiKey, cryptoNewsContent) : [];
+        console.log(`Analyzed ${cryptoArticles.length} crypto articles.`);
+
+        if (financialArticles.length === 0 && cryptoArticles.length === 0) {
+            console.log("No articles found from any source. Exiting job.");
+            return res.status(200).json({ message: "No content to process." });
+        }
+        
+        await sendToDiscord(webhookUrl, financialArticles, cryptoArticles);
         
         console.log("Successfully sent news summary to Discord.");
         res.status(200).json({ success: true, message: 'Scheduled push completed successfully.' });
