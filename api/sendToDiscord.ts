@@ -24,13 +24,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-        const { message } = req.body;
+        const { embeds, content } = req.body;
 
-        if (!message || typeof message !== 'string') {
-            return res.status(400).json({ error: 'Message is required and must be a string.' });
+        if (!embeds && !content) {
+            return res.status(400).json({ error: 'Request body must contain either "embeds" or "content".' });
+        }
+        
+        // Discord API allows a maximum of 10 embeds per message.
+        if (embeds && embeds.length > 10) {
+            return res.status(400).json({ error: 'Cannot send more than 10 embeds at a time.' });
         }
 
-        const payload = { content: message };
+        const payload = {
+            content: content || `**AI 每日財經洞察 (${new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })})**`,
+            embeds: embeds,
+        };
 
         const discordResponse = await fetch(webhookUrl, {
             method: 'POST',
@@ -40,8 +48,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         if (!discordResponse.ok) {
             const errorBody = await discordResponse.json();
-            console.error('Discord API error:', errorBody);
-            return res.status(discordResponse.status).json({ error: `Discord API Error: ${errorBody.message || 'Unknown error'}` });
+            console.error('Discord API error:', JSON.stringify(errorBody, null, 2));
+            const errorMessage = errorBody.message || 'Unknown error';
+            // Attempt to extract more specific error details
+            if (errorBody.errors?.embeds) {
+                 return res.status(discordResponse.status).json({ error: `Discord Embed Error: ${JSON.stringify(errorBody.errors.embeds)}` });
+            }
+            return res.status(discordResponse.status).json({ error: `Discord API Error: ${errorMessage}` });
         }
 
         res.status(200).json({ success: true, message: 'Message sent to Discord.' });

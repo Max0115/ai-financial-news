@@ -1,4 +1,3 @@
-
 // Placed in /api/getDashboardData.ts
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { GoogleGenAI, Type } from "@google/genai";
@@ -7,25 +6,16 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 async function getNewsFromSource(feedUrl: string) {
     const ARTICLE_LIMIT = 15;
-    if (feedUrl.includes("reuters.com")) {
-        const PROXY_URL = `https://corsproxy.io/?${encodeURIComponent(feedUrl)}`;
-        const response = await fetch(PROXY_URL);
-        if (!response.ok) throw new Error(`Failed to fetch Reuters from proxy. Status: ${response.status}`);
-        const json = await response.json();
-        return json.result.articles.slice(0, ARTICLE_LIMIT).map((item: any) =>
-            `Title: ${item.title}\nDescription: ${item.description || ''}\nLink: ${item.canonical_url || ''}\nPublishedAt: ${item.published_at || ''}`
-        ).join("\n\n---\n\n");
-    } else {
-        const PROXY_URL = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`;
-        const response = await fetch(PROXY_URL);
-        if (!response.ok) throw new Error(`Failed to fetch from rss2json. Status: ${response.status}`);
-        const json = await response.json();
-        if (json.status !== 'ok' || !json.items) return "";
-        return json.items.slice(0, ARTICLE_LIMIT).map((item: any) => {
-            const cleanDescription = (item.description || '').replace(/<[^>]*>?/gm, '').substring(0, 500);
-            return `Title: ${item.title || 'No Title'}\nDescription: ${cleanDescription}\nLink: ${item.link || '#'}\nPublishedAt: ${item.pubDate || ''}`;
-        }).join("\n\n---\n\n");
-    }
+    // rss2json is more reliable for various feeds
+    const PROXY_URL = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`;
+    const response = await fetch(PROXY_URL);
+    if (!response.ok) throw new Error(`Failed to fetch from rss2json. Status: ${response.status}`);
+    const json = await response.json();
+    if (json.status !== 'ok' || !json.items) return "";
+    return json.items.slice(0, ARTICLE_LIMIT).map((item: any) => {
+        const cleanDescription = (item.description || '').replace(/<[^>]*>?/gm, '').substring(0, 500);
+        return `Title: ${item.title || 'No Title'}\nDescription: ${cleanDescription}\nLink: ${item.link || '#'}\nPublishedAt: ${item.pubDate || ''}`;
+    }).join("\n\n---\n\n");
 }
 
 async function analyzeNews(ai: GoogleGenAI, newsContent: string) {
@@ -58,32 +48,38 @@ async function getFinancialCalendar(ai: GoogleGenAI) {
 }
 
 async function getTrumpTracker(ai: GoogleGenAI) {
-    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); // Get date in YYYY-MM-DD format for US
-    const scheduleSchema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { date: { type: Type.STRING }, time: { type: Type.STRING }, eventDescription: { type: Type.STRING } }, required: ["date", "eventDescription"] } };
-    const schedulePrompt = `請使用 Google 搜尋，找出唐納·川普在今天 (${today}) 和明天兩天內的公開行程、集會或重要演講。以繁體中文和 JSON 格式回傳，包含日期（YYYY-MM-DD）、時間（當地時間，註明時區，若無則為 '全天'）和事件描述。如果沒有找到行程，請回傳空陣列 []。`;
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const schedulePrompt = `請使用 Google 搜尋，找出唐納·川普在今天 (${today}) 和明天兩天內的公開行程、集會或重要演講。以繁體中文和 JSON 格式回傳，格式為 { "schedule": [ { "date": "YYYY-MM-DD", "time": "HH:MM (時區)", "eventDescription": "..." } ] }。若無行程，回傳 { "schedule": [] }。`;
+    const postPrompt = `請使用 Google 搜尋，找出唐納·川普今日 (${today}) 在 Truth Social 上引起最多關注或報導的貼文內容。將內容翻譯成繁體中文，並提供一個相關的新聞報導或來源 URL。以 JSON 格式回傳，格式為 { "topPost": { "postContent": "...", "url": "..." } }。若無，回傳 { "topPost": { "postContent": "", "url": "" } }。`;
     
-    const postSchema = { type: Type.OBJECT, properties: { postContent: { type: Type.STRING }, url: { type: Type.STRING } }, required: ["postContent", "url"] };
-    const postPrompt = `請使用 Google 搜尋，找出唐納·川普今日 (${today}) 在 Truth Social 上引起最多關注或報導的貼文內容。將內容翻譯成繁體中文，並提供一個相關的新聞報導或來源 URL。以 JSON 格式回傳。如果沒有找到，回傳一個包含空字串的物件。`;
+    let scheduleData = { schedule: [] };
+    let postData = { topPost: { postContent: "", url: "" } };
 
-    let schedule = [], topPost = { postContent: "", url: "" };
-    
     try {
+        console.log("Fetching Trump schedule...");
         const scheduleResponse = await ai.models.generateContent({
             model: "gemini-2.5-flash", contents: schedulePrompt,
-            config: { tools: [{ googleSearch: {} }], responseMimeType: "application/json", responseSchema: scheduleSchema }
+            config: { tools: [{ googleSearch: {} }] }
         });
-        schedule = JSON.parse(scheduleResponse.text.trim());
-    } catch (e) { console.error("Error fetching Trump schedule:", e); }
+        const cleanedText = scheduleResponse.text.trim().replace(/```json|```/g, "");
+        scheduleData = JSON.parse(cleanedText);
+    } catch (e) {
+        console.error("Error fetching or parsing Trump schedule:", e);
+    }
 
     try {
+        console.log("Fetching Trump post...");
         const postResponse = await ai.models.generateContent({
             model: "gemini-2.5-flash", contents: postPrompt,
-            config: { tools: [{ googleSearch: {} }], responseMimeType: "application/json", responseSchema: postSchema }
+            config: { tools: [{ googleSearch: {} }] }
         });
-        topPost = JSON.parse(postResponse.text.trim());
-    } catch(e) { console.error("Error fetching Trump post:", e); }
+        const cleanedText = postResponse.text.trim().replace(/```json|```/g, "");
+        postData = JSON.parse(cleanedText);
+    } catch(e) {
+        console.error("Error fetching or parsing Trump post:", e);
+    }
     
-    return { schedule, topPost };
+    return { schedule: scheduleData.schedule || [], topPost: postData.topPost || { postContent: "", url: "" } };
 }
 
 // --- Main Handler ---

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { jsx, jsxs } from "react/jsx-runtime";
@@ -20,8 +19,14 @@ const App = () => {
     try {
       const response = await fetch('/api/getDashboardData');
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || '從後端獲取儀表板數據失敗');
+        let errorMessage = '從後端獲取儀表板數據失敗';
+        try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+            // Ignore if response is not json
+        }
+        throw new Error(errorMessage);
       }
       const data = await response.json();
       setDashboardData(data);
@@ -63,48 +68,71 @@ const App = () => {
     setDiscordStatus(null);
     
     const { financialNews, cryptoNews, calendar, trumpTracker } = dashboardData;
-    let content = `**AI 每日財經洞察 (${new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })})**\n\n`;
+    const embeds = [];
 
+    const timestamp = new Date().toISOString();
+    
     if (financialNews && financialNews.length > 0) {
-        content += `--- 📰 **主要財經新聞** ---\n\n`;
-        financialNews.forEach(article => {
-            content += `> **[${article.eventName}](${article.link})** (${article.importance})\n> ${article.summary}\n\n`;
+        embeds.push({
+            title: '📰 主要財經新聞',
+            color: 3447003, // Blue
+            description: financialNews.map(a => `> **[${a.eventName}](${a.link})** (${a.importance})\n> ${a.summary}`).join('\n\n'),
         });
     }
-    
+
     if (cryptoNews && cryptoNews.length > 0) {
-        content += `--- 📈 **加密貨幣新聞** ---\n\n`;
-        cryptoNews.forEach(article => {
-            content += `> **[${article.eventName}](${article.link})** (${article.importance})\n> ${article.summary}\n\n`;
+        embeds.push({
+            title: '📈 加密貨幣新聞',
+            color: 15844367, // Gold
+            description: cryptoNews.map(a => `> **[${a.eventName}](${a.link})** (${a.importance})\n> ${a.summary}`).join('\n\n'),
         });
     }
 
     if (calendar && calendar.length > 0) {
-        content += `--- 🗓️ **本週財經日曆** ---\n\n`;
-        calendar.slice(0, 7).forEach(event => {
-             content += `> **${event.date.substring(5)} ${event.time}** ${getCountryFlag(event.country)} ${event.eventName} (${getImportanceEmoji(event.importance)} ${event.importance})\n`;
+        embeds.push({
+            title: '🗓️ 本週財經日曆',
+            color: 5763719, // Green
+            description: calendar.slice(0, 10).map(e => `> **${e.date.substring(5)} ${e.time}** ${getCountryFlag(e.country)} ${e.eventName} (${getImportanceEmoji(e.importance)} ${e.importance})`).join('\n'),
         });
-        content += `\n`;
     }
 
     if (trumpTracker) {
-        content += `--- 🦅 **川普動態** ---\n\n`;
+        const fields = [];
         if (trumpTracker.schedule && trumpTracker.schedule.length > 0) {
-            content += `> **🎤 行程與演講:**\n`;
-            trumpTracker.schedule.forEach(item => {
-                content += `> - **${item.date.substring(5)} ${item.time}:** ${item.eventDescription}\n`;
+            fields.push({
+                name: '🎤 行程與演講',
+                value: trumpTracker.schedule.map(item => `> - **${item.date.substring(5)} ${item.time}:** ${item.eventDescription}`).join('\n'),
+                inline: false,
             });
         }
         if (trumpTracker.topPost && trumpTracker.topPost.postContent) {
-             content += `> **💬 [Truth Social 熱門](${trumpTracker.topPost.url}):**\n> "${trumpTracker.topPost.postContent}"\n`;
+            fields.push({
+                name: '💬 Truth Social 熱門',
+                value: `> [原文連結](${trumpTracker.topPost.url})\n> "${trumpTracker.topPost.postContent}"`,
+                inline: false,
+            });
+        }
+        if (fields.length > 0) {
+            embeds.push({
+                title: '🦅 川普動態',
+                color: 15105570, // Red
+                fields: fields,
+            });
         }
     }
+    
+    // Add a footer to the last embed
+    if (embeds.length > 0) {
+        embeds[embeds.length-1].footer = { text: 'AI Financial Insight Dashboard' };
+        embeds[embeds.length-1].timestamp = timestamp;
+    }
+
 
     try {
         const response = await fetch('/api/sendToDiscord', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: content }),
+            body: JSON.stringify({ embeds }), // Send embeds array
         });
         if (!response.ok) {
             const errorData = await response.json();
@@ -271,7 +299,8 @@ const App = () => {
               className: "error-container",
               children: [
                 jsx("h2", { children: "糟糕，出錯了！" }),
-                jsx("p", { children: error })
+                jsx("p", { children: error }),
+                jsx("button", { onClick: () => setRefreshTrigger(prev => prev + 1), style: { marginTop: '1rem' }, children: "重試" })
               ]
             }) : jsxs(React.Fragment, {
               children: [
