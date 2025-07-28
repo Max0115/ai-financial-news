@@ -4,14 +4,13 @@
  */
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createRoot } from "react-dom/client";
-import { GoogleGenAI, Type } from "@google/genai";
 
 // 擴展 RSS 來源列表
 const RSS_FEEDS = [
     { name: "Investing.com - 主要新聞", url: "https://www.investing.com/rss/news_25.rss" },
     { name: "Investing.com - 外匯", url: "https://www.investing.com/rss/news_1.rss" },
     { name: "DailyFX - 市場新聞", url: "https://www.dailyfx.com/feeds/market-news" },
-    { name: "Reuters - 市場", url: "https://www.reuters.com/pf/api/v3/content/fetch/articles-by-section-id-v1?query=%7B%22section_id%22%3A%22%2Fmarkets%2F%22%2C%22size%22%3A10%2C%22website%22%3A%22reuters%22%7D&_website=reuters" } // Note: Reuters is JSON, not XML
+    { name: "Reuters - 市場", url: "https://www.reuters.com/pf/api/v3/content/fetch/articles-by-section-id-v1?query=%7B%22section_id%22%3A%22%2Fmarkets%2F%22%2C%22size%22%3A10%2C%22website%22%3A%22reuters%22%7D" }
 ];
 
 interface FinancialArticle {
@@ -40,70 +39,23 @@ const App: React.FC = () => {
     setLoading(true);
     setError(null);
     setDiscordStatus(null);
-    const PROXY_URL = `https://api.allorigins.win/raw?url=${encodeURIComponent(selectedFeed)}`;
-
+    
     try {
-      const response = await fetch(PROXY_URL);
+      const apiUrl = `/api/getNews?feedUrl=${encodeURIComponent(selectedFeed)}`;
+      const response = await fetch(apiUrl);
+      const data = await response.json();
+
       if (!response.ok) {
-        throw new Error(`無法獲取 RSS feed。狀態碼: ${response.status}`);
-      }
-      const rawText = await response.text();
-      
-      let newsContent: string;
-      // Handle different feed formats
-      if (selectedFeed.includes("reuters.com")) {
-        const json = JSON.parse(rawText);
-        newsContent = json.result.articles.slice(0, 8).map((item: any) => 
-            `標題: ${item.title}\n描述: ${item.description}`
-        ).join("\n\n---\n\n");
-      } else { // XML-based feeds
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(rawText, "application/xml");
-        const items = Array.from(xmlDoc.querySelectorAll("item")).slice(0, 8);
-        if (items.length === 0) {
-            setArticles([]);
-            setLoading(false);
-            return;
-        }
-        newsContent = items.map(item => {
-            const title = item.querySelector("title")?.textContent || "";
-            const description = item.querySelector("description")?.textContent || "";
-            return `標題: ${title}\n描述: ${description}`;
-        }).join("\n\n---\n\n");
+        throw new Error(data.error || '從後端獲取新聞失敗');
       }
 
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
-      const result = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: `你是專業的金融分析師。請從以下新聞項目中，為每個項目提取關鍵資訊。提供事件名稱、簡要摘要，並評估其重要性（高、中、低）。忽略無關緊要的市場評論。根據提供的 schema 將輸出格式化為 JSON 陣列。\n\n${newsContent}`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                eventName: { type: Type.STRING, description: '金融事件或數據發布的名稱。'},
-                summary: { type: Type.STRING, description: '對新聞的一句話簡要總結。'},
-                importance: { type: Type.STRING, description: '評估的重要性: High, Medium, or Low.'},
-              },
-              required: ["eventName", "summary", "importance"],
-            },
-          },
-        },
-      });
-      
-      const processedText = result.text.trim();
-      const processedArticles: FinancialArticle[] = JSON.parse(processedText);
-      setArticles(processedArticles);
+      setArticles(data);
 
     } catch (err) {
       console.error("處理過程中發生錯誤:", err);
       let errorMessage = "發生未知錯誤，請檢查主控台。";
       if (err instanceof Error) {
-        errorMessage = err.message.includes("fetch") 
-          ? "無法從 RSS feed 獲取資料。代理服務可能暫時無法使用，請稍後再試。" 
-          : err.message;
+        errorMessage = err.message;
       }
       setError(errorMessage);
     } finally {
