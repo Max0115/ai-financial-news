@@ -1,3 +1,4 @@
+
 :root {
   --background-color: #f0f2f5;
   --card-background: #ffffff;
@@ -11,6 +12,7 @@
   --importance-low: #198754;
   --success-color: #198754;
   --error-color: #dc3545;
+  --info-color: #0dcaf0;
 }
 
 * {
@@ -70,6 +72,7 @@ body {
   display: flex;
   align-items: center;
   gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .control-group label {
@@ -107,64 +110,16 @@ body {
   cursor: not-allowed;
 }
 
-/* New styles for the toggle switch */
-.toggle-switch-container {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+.auto-push-status {
+    width: 100%;
+    text-align: center;
+    padding: 0.5rem;
+    background-color: #eef7ff;
+    color: #0a58ca;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    margin-top: 0.5rem;
 }
-
-.toggle-label {
-  font-size: 1rem;
-  font-weight: 500;
-  color: var(--text-color);
-  cursor: pointer;
-  user-select: none;
-}
-
-.toggle-switch {
-  appearance: none;
-  -webkit-appearance: none;
-  position: relative;
-  width: 48px;
-  height: 26px;
-  background-color: #ccc;
-  border-radius: 13px;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.toggle-switch::before {
-  content: '';
-  position: absolute;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background-color: white;
-  top: 2px;
-  left: 2px;
-  transition: transform 0.2s;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-}
-
-.toggle-switch:checked {
-  background-color: var(--primary-color);
-}
-
-.toggle-switch:checked::before {
-  transform: translateX(22px);
-}
-
-.toggle-switch:disabled + .toggle-label {
-    color: var(--secondary-color);
-    cursor: not-allowed;
-}
-
-.toggle-switch:disabled {
-    background-color: #e9ecef;
-    cursor: not-allowed;
-}
-
 
 .discord-status {
   text-align: center;

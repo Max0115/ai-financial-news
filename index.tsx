@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -29,10 +30,8 @@ const App: React.FC = () => {
   const [refreshTrigger, setRefreshTrigger] = useState<number>(0);
   const [discordStatus, setDiscordStatus] = useState<DiscordStatus | null>(null);
   const [isSendingToDiscord, setIsSendingToDiscord] = useState<boolean>(false);
-  const [isAutoPushEnabled, setIsAutoPushEnabled] = useState<boolean>(false);
   
   const intervalRef = useRef<number | null>(null);
-  const isInitialMount = useRef(true);
   
   const fetchAndProcessNews = useCallback(async () => {
     setLoading(true);
@@ -67,14 +66,15 @@ const App: React.FC = () => {
     fetchAndProcessNews();
   }, [fetchAndProcessNews, refreshTrigger]);
 
-  // Effect for automatic refresh timer
+  // Effect for automatic refresh timer FOR THE VIEW, not for pushing
   useEffect(() => {
     if (intervalRef.current) {
         clearInterval(intervalRef.current);
     }
+    // Refresh the view every 5 minutes
     intervalRef.current = window.setInterval(() => {
-        setRefreshTrigger(prev => prev + 1); // Trigger refresh
-    }, 5 * 60 * 1000); // 5 minutes
+        setRefreshTrigger(prev => prev + 1); 
+    }, 5 * 60 * 1000); 
 
     return () => {
         if (intervalRef.current) {
@@ -89,7 +89,7 @@ const App: React.FC = () => {
     setDiscordStatus(null);
     
     const feedName = RSS_FEEDS.find(feed => feed.url === selectedFeed)?.name || "財經新聞";
-    let content = `**${feedName} - AI 摘要 (${new Date().toLocaleString()})**\n\n`;
+    let content = `**${feedName} - AI 摘要 (手動發送 - ${new Date().toLocaleString()})**\n\n`;
     articles.forEach(article => {
         content += `> **[${article.eventName}](${article.link})** (${article.importance})\n> ${article.summary}\n\n`;
     });
@@ -114,19 +114,6 @@ const App: React.FC = () => {
         setTimeout(() => setDiscordStatus(null), 5000); // Hide status after 5s
     }
   }, [articles, selectedFeed, isSendingToDiscord]);
-  
-    // Effect for auto-pushing to Discord
-  useEffect(() => {
-    if (isInitialMount.current) {
-        isInitialMount.current = false;
-        return;
-    }
-
-    if (isAutoPushEnabled && articles.length > 0) {
-        handleSendToDiscord();
-    }
-  }, [articles, isAutoPushEnabled, handleSendToDiscord]);
-
 
   return (
     <div className="app-container">
@@ -149,19 +136,11 @@ const App: React.FC = () => {
                 {loading ? '刷新中...' : '立即刷新'}
             </button>
             <button onClick={handleSendToDiscord} disabled={loading || articles.length === 0 || isSendingToDiscord}>
-                {isSendingToDiscord ? '發送中...' : '推送到 Discord'}
+                {isSendingToDiscord ? '發送中...' : '手動推送到 Discord'}
             </button>
-             <div className="toggle-switch-container">
-                <input 
-                  type="checkbox" 
-                  id="auto-push-toggle" 
-                  className="toggle-switch"
-                  checked={isAutoPushEnabled}
-                  onChange={e => setIsAutoPushEnabled(e.target.checked)}
-                  disabled={loading}
-                />
-                <label htmlFor="auto-push-toggle" className="toggle-label">自動推送</label>
-            </div>
+        </div>
+         <div className="auto-push-status">
+            <p>ℹ️ 後端自動推送已啟用，每 5 分鐘更新一次。</p>
         </div>
       </div>
         

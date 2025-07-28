@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { jsx, jsxs } from "react/jsx-runtime";
@@ -18,10 +19,8 @@ const App = () => {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [discordStatus, setDiscordStatus] = useState(null);
   const [isSendingToDiscord, setIsSendingToDiscord] = useState(false);
-  const [isAutoPushEnabled, setIsAutoPushEnabled] = useState(false);
   
   const intervalRef = useRef(null);
-  const isInitialMount = useRef(true);
   
   const fetchAndProcessNews = useCallback(async () => {
     setLoading(true);
@@ -56,14 +55,15 @@ const App = () => {
     fetchAndProcessNews();
   }, [fetchAndProcessNews, refreshTrigger]);
 
-  // Effect for automatic refresh timer
+  // Effect for automatic refresh timer FOR THE VIEW, not for pushing
   useEffect(() => {
     if (intervalRef.current) {
         clearInterval(intervalRef.current);
     }
+    // Refresh the view every 5 minutes
     intervalRef.current = window.setInterval(() => {
-        setRefreshTrigger(prev => prev + 1); // Trigger refresh
-    }, 5 * 60 * 1000); // 5 minutes
+        setRefreshTrigger(prev => prev + 1); 
+    }, 5 * 60 * 1000); 
 
     return () => {
         if (intervalRef.current) {
@@ -78,7 +78,7 @@ const App = () => {
     setDiscordStatus(null);
     
     const feedName = RSS_FEEDS.find(feed => feed.url === selectedFeed)?.name || "財經新聞";
-    let content = `**${feedName} - AI 摘要 (${new Date().toLocaleString()})**\n\n`;
+    let content = `**${feedName} - AI 摘要 (手動發送 - ${new Date().toLocaleString()})**\n\n`;
     articles.forEach(article => {
         content += `> **[${article.eventName}](${article.link})** (${article.importance})\n> ${article.summary}\n\n`;
     });
@@ -103,19 +103,6 @@ const App = () => {
         setTimeout(() => setDiscordStatus(null), 5000); // Hide status after 5s
     }
   }, [articles, selectedFeed, isSendingToDiscord]);
-  
-    // Effect for auto-pushing to Discord
-  useEffect(() => {
-    if (isInitialMount.current) {
-        isInitialMount.current = false;
-        return;
-    }
-
-    if (isAutoPushEnabled && articles.length > 0) {
-        handleSendToDiscord();
-    }
-  }, [articles, isAutoPushEnabled, handleSendToDiscord]);
-
 
   return jsxs("div", {
     className: "app-container",
@@ -154,27 +141,13 @@ const App = () => {
               jsx("button", {
                 onClick: handleSendToDiscord,
                 disabled: loading || articles.length === 0 || isSendingToDiscord,
-                children: isSendingToDiscord ? '發送中...' : '推送到 Discord'
-              }),
-              jsxs("div", {
-                className: "toggle-switch-container",
-                children: [
-                  jsx("input", {
-                    type: "checkbox",
-                    id: "auto-push-toggle",
-                    className: "toggle-switch",
-                    checked: isAutoPushEnabled,
-                    onChange: e => setIsAutoPushEnabled(e.target.checked),
-                    disabled: loading
-                  }),
-                  jsx("label", {
-                    htmlFor: "auto-push-toggle",
-                    className: "toggle-label",
-                    children: "自動推送"
-                  })
-                ]
+                children: isSendingToDiscord ? '發送中...' : '手動推送到 Discord'
               })
             ]
+          }),
+          jsx("div", {
+            className: "auto-push-status",
+            children: jsx("p", { children: "ℹ️ 後端自動推送已啟用，每 5 分鐘更新一次。" })
           })
         ]
       }),
