@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createRoot } from "react-dom/client";
+import { jsx, jsxs } from "react/jsx-runtime";
 
 // 擴展 RSS 來源列表
 const RSS_FEEDS = [
@@ -101,75 +102,104 @@ const App = () => {
     }
   };
 
-  return (
-    <div className="app-container">
-      <header className="header">
-        <h1>AI Financial News Assistant</h1>
-        <p>由 Gemini 分析的最新財經動態</p>
-      </header>
-
-      <div className="controls-panel">
-        <div className="control-group">
-            <label htmlFor="feed-select">新聞來源:</label>
-            <select id="feed-select" value={selectedFeed} onChange={e => setSelectedFeed(e.target.value)} disabled={loading}>
-                {RSS_FEEDS.map(feed => (
-                    <option key={feed.url} value={feed.url}>{feed.name}</option>
-                ))}
-            </select>
-        </div>
-        <div className="control-group">
-            <button onClick={() => setRefreshTrigger(prev => prev + 1)} disabled={loading}>
-                {loading ? '刷新中...' : '立即刷新'}
-            </button>
-            <button onClick={handleSendToDiscord} disabled={loading || articles.length === 0 || isSendingToDiscord}>
-                {isSendingToDiscord ? '發送中...' : '推送到 Discord'}
-            </button>
-        </div>
-      </div>
-        
-      {discordStatus && (
-        <div className={`discord-status ${discordStatus.type} show`}>
-            {discordStatus.message}
-        </div>
-      )}
-
-      <main>
-        {loading && (
-          <div className="loader-container">
-            <div className="loader"></div>
-            <p>正在從 {RSS_FEEDS.find(f => f.url === selectedFeed)?.name || '來源'} 獲取並分析新聞...</p>
-          </div>
-        )}
-        {error && (
-            <div className="error-container">
-                <h2>糟糕，出錯了！</h2>
-                <p>{error}</p>
-            </div>
-        )}
-        {!loading && !error && (
-          <div className="articles-grid">
-            {articles.length > 0 ? articles.map((article, index) => (
-              <article key={index} className="article-card">
-                <div className="card-header">
-                  <h2>
-                    <a href={article.link} target="_blank" rel="noopener noreferrer">
-                      {article.eventName}
-                    </a>
-                  </h2>
-                  <span className={`importance-badge importance-${article.importance}`}>{article.importance}</span>
-                </div>
-                <div className="card-body">
-                  <p>{article.summary}</p>
-                </div>
-              </article>
-            )) : <p>目前沒有可顯示的財經新聞，或 AI 未能從來源中提取有效資訊。</p>}
-          </div>
-        )}
-      </main>
-    </div>
-  );
+  return jsxs("div", {
+    className: "app-container",
+    children: [
+      jsxs("header", {
+        className: "header",
+        children: [
+          jsx("h1", { children: "AI Financial News Assistant" }),
+          jsx("p", { children: "由 Gemini 分析的最新財經動態" })
+        ]
+      }),
+      jsxs("div", {
+        className: "controls-panel",
+        children: [
+          jsxs("div", {
+            className: "control-group",
+            children: [
+              jsx("label", { htmlFor: "feed-select", children: "新聞來源:" }),
+              jsx("select", {
+                id: "feed-select",
+                value: selectedFeed,
+                onChange: e => setSelectedFeed(e.target.value),
+                disabled: loading,
+                children: RSS_FEEDS.map(feed => jsx("option", { value: feed.url, children: feed.name }, feed.url))
+              })
+            ]
+          }),
+          jsxs("div", {
+            className: "control-group",
+            children: [
+              jsx("button", {
+                onClick: () => setRefreshTrigger(prev => prev + 1),
+                disabled: loading,
+                children: loading ? '刷新中...' : '立即刷新'
+              }),
+              jsx("button", {
+                onClick: handleSendToDiscord,
+                disabled: loading || articles.length === 0 || isSendingToDiscord,
+                children: isSendingToDiscord ? '發送中...' : '推送到 Discord'
+              })
+            ]
+          })
+        ]
+      }),
+      discordStatus && jsx("div", {
+        className: `discord-status ${discordStatus.type} show`,
+        children: discordStatus.message
+      }),
+      jsxs("main", {
+        children: [
+          loading && jsxs("div", {
+            className: "loader-container",
+            children: [
+              jsx("div", { className: "loader" }),
+              jsx("p", { children: `正在從 ${RSS_FEEDS.find(f => f.url === selectedFeed)?.name || '來源'} 獲取並分析新聞...` })
+            ]
+          }),
+          error && jsxs("div", {
+            className: "error-container",
+            children: [
+              jsx("h2", { children: "糟糕，出錯了！" }),
+              jsx("p", { children: error })
+            ]
+          }),
+          !loading && !error && jsx("div", {
+            className: "articles-grid",
+            children: articles.length > 0 ? articles.map((article, index) => jsxs("article", {
+              className: "article-card",
+              children: [
+                jsxs("div", {
+                  className: "card-header",
+                  children: [
+                    jsx("h2", {
+                      children: jsx("a", {
+                        href: article.link,
+                        target: "_blank",
+                        rel: "noopener noreferrer",
+                        children: article.eventName
+                      })
+                    }),
+                    jsx("span", {
+                      className: `importance-badge importance-${article.importance}`,
+                      children: article.importance
+                    })
+                  ]
+                }),
+                jsx("div", {
+                  className: "card-body",
+                  children: jsx("p", { children: article.summary })
+                })
+              ]
+            }, index)) : jsx("p", { children: "目前沒有可顯示的財經新聞，或 AI 未能從來源中提取有效資訊。" })
+          })
+        ]
+      })
+    ]
+  });
 };
 
 const container = document.getElementById("root");
 const root = createRoot(container);
-root.render(<App />);
+root.render(jsx(App, {}));
