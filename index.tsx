@@ -289,7 +289,7 @@ const App: React.FC = () => {
             </button>
         </div>
          <div className="auto-push-status">
-            <p>ℹ️ 每日自動摘要將於台灣時間晚上 8:30 推送到 Discord。</p>
+            <p>ℹ️ 自動摘要將於台灣時間 每日早上 6:50 及 晚上 7:30 推送到 Discord。</p>
         </div>
       </div>
         

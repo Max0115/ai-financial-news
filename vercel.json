@@ -7,8 +7,12 @@
   },
   "crons": [
     {
-      "path": "/api/runScheduledPush",
-      "schedule": "30 12 * * *"
+      "path": "/api/runScheduledPush?run=morning",
+      "schedule": "50 22 * * *"
+    },
+    {
+      "path": "/api/runScheduledPush?run=evening",
+      "schedule": "30 11 * * *"
     }
   ]
 }

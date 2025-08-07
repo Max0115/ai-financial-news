@@ -4,6 +4,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { GoogleGenAI, Type } from "@google/genai";
 
 // --- Helper Functions (copied from getDashboardData) ---
+type RunType = 'morning' | 'evening';
 
 async function getNewsFromSource(feedUrl: string) {
     const ARTICLE_LIMIT = 15;
@@ -19,14 +20,19 @@ async function getNewsFromSource(feedUrl: string) {
     }).join("\n\n---\n\n");
 }
 
-async function analyzeNews(ai: GoogleGenAI, newsContent: string) {
+async function analyzeNews(ai: GoogleGenAI, newsContent: string, runType: RunType) {
     if (!newsContent.trim()) return [];
     const schema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { eventName: { type: Type.STRING }, summary: { type: Type.STRING }, importance: { type: Type.STRING, enum: ["High", "Medium", "Low"] }, link: { type: Type.STRING } }, required: ["eventName", "summary", "importance", "link"] } };
-    const prompt = `請從以下財經新聞列表中，選出最重要的五則新聞。針對這五則新聞，請執行以下任務：
+    
+    const basePrompt = `請從以下財經新聞列表中，選出最重要的五則新聞。針對這五則新聞，請執行以下任務：
 1. 將 eventName (事件名稱) 和 summary (摘要) 翻譯成自然流暢、口語化的繁體中文。
-2. 保持 importance (重要性) 和 link (原始連結) 不變。
-3. 最終請以 JSON 陣列的格式回傳這五則經過處理的新聞。
-新聞列表：\n\n${newsContent}`;
+2. 保持 importance (重要性) 和 link (原始連結) 不變。`;
+    
+    const eveningInstruction = `\n3. **請優先選擇下午或晚間發生的新動態，避免與早上已報導過的重大頭條重複。**`;
+    
+    const finalInstruction = `\n4. 最終請以 JSON 陣列的格式回傳這五則經過處理的新聞。`;
+
+    const prompt = `${basePrompt}${runType === 'evening' ? eveningInstruction : ''}${finalInstruction}\n新聞列表：\n\n${newsContent}`;
 
     const response = await ai.models.generateContent({
         model: "gemini-2.5-flash", contents: prompt,
@@ -107,7 +113,7 @@ async function getTrumpTracker(ai: GoogleGenAI) {
 }
 
 
-async function sendComprehensiveDiscordMessage(webhookUrl: string, data: any) {
+async function sendComprehensiveDiscordMessage(webhookUrl: string, data: any, runType: string) {
     const { financialNews, cryptoNews, calendar, trumpTracker } = data;
     const embeds = [];
     const timestamp = new Date().toISOString();
@@ -152,9 +158,11 @@ async function sendComprehensiveDiscordMessage(webhookUrl: string, data: any) {
     
     embeds[embeds.length-1].footer = { text: 'AI Financial Insight Dashboard' };
     embeds[embeds.length-1].timestamp = timestamp;
+    
+    const runTitle = runType === 'morning' ? '上午' : '晚間';
 
     const payload = {
-        content: `**AI 每日財經洞察 (${new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })})**`,
+        content: `**AI 每日${runTitle}財經洞察 (${new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })})**`,
         embeds: embeds.slice(0, 10) // Discord limit of 10 embeds
     };
 
@@ -169,6 +177,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(401).send('Unauthorized');
     }
     
+    const runType: RunType = req.query.run === 'morning' ? 'morning' : 'evening';
+
     const apiKey = process.env.API_KEY;
     const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
     if (!apiKey || !webhookUrl) {
@@ -179,7 +189,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const ai = new GoogleGenAI({ apiKey });
 
     try {
-        console.log("Cron job started: Fetching all dashboard data...");
+        console.log(`Cron job started for ${runType} run: Fetching all dashboard data...`);
         
         const [
             financialNewsContent, cryptoNewsContent, calendarData, trumpTrackerData
@@ -191,19 +201,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ]);
         
         const [financialNews, cryptoNews] = await Promise.all([
-            analyzeNews(ai, financialNewsContent),
-            analyzeNews(ai, cryptoNewsContent)
+            analyzeNews(ai, financialNewsContent, runType),
+            analyzeNews(ai, cryptoNewsContent, runType)
         ]);
         
         const allData = { financialNews, cryptoNews, calendar: calendarData, trumpTracker: trumpTrackerData };
 
-        await sendComprehensiveDiscordMessage(webhookUrl, allData);
+        await sendComprehensiveDiscordMessage(webhookUrl, allData, runType);
         
-        console.log("Successfully sent comprehensive summary to Discord.");
-        res.status(200).json({ success: true, message: 'Scheduled push completed successfully.' });
+        console.log(`Successfully sent comprehensive ${runType} summary to Discord.`);
+        res.status(200).json({ success: true, message: `Scheduled ${runType} push completed successfully.` });
 
     } catch (error) {
-        console.error("Error in scheduled push:", error);
+        console.error(`Error in scheduled ${runType} push:`, error);
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
         res.status(500).json({ error: `Internal Server Error: ${errorMessage}` });
     }

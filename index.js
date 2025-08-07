@@ -275,7 +275,7 @@ const App = () => {
           }),
           jsx("div", {
             className: "auto-push-status",
-            children: jsx("p", { children: "ℹ️ 每日自動摘要將於台灣時間晚上 8:30 推送到 Discord。" })
+            children: jsx("p", { children: "ℹ️ 自動摘要將於台灣時間 每日早上 6:50 及 晚上 7:30 推送到 Discord。" })
           })
         ]
       }),
