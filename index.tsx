@@ -70,9 +70,9 @@ const App: React.FC = () => {
         let errorMessage = '從後端獲取儀表板數據失敗';
         try {
             const errorData = await response.json();
-            errorMessage = errorData.error || errorMessage;
+            errorMessage = `Internal Server Error: ${errorData.error || response.statusText}`;
         } catch (e) {
-            // Ignore if response is not json
+             errorMessage = `Internal Server Error: got status: ${response.status}`;
         }
         throw new Error(errorMessage);
       }
@@ -83,6 +83,10 @@ const App: React.FC = () => {
       let errorMessage = "發生未知錯誤，請檢查主控台。";
       if (err instanceof Error) {
         errorMessage = err.message;
+      }
+      // Add custom error message for rate limiting
+      if (typeof errorMessage === 'string' && (errorMessage.includes('429') || errorMessage.toUpperCase().includes('RESOURCE_EXHAUSTED') || errorMessage.includes('quota'))) {
+        errorMessage = 'API 請求過於頻繁，已超出用量額度。請稍候一分鐘再重試。';
       }
       setError(errorMessage);
     } finally {

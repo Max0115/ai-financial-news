@@ -1,13 +1,11 @@
-
 // Placed in /api/getDashboardData.ts
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { GoogleGenAI, Type } from "@google/genai";
 
-// --- Helper Functions (can be shared with runScheduledPush) ---
+// --- Helper Functions ---
 
 async function getNewsFromSource(feedUrl: string) {
     const ARTICLE_LIMIT = 15;
-    // rss2json is more reliable for various feeds
     const PROXY_URL = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`;
     const response = await fetch(PROXY_URL);
     if (!response.ok) throw new Error(`Failed to fetch from rss2json. Status: ${response.status}`);
@@ -19,51 +17,44 @@ async function getNewsFromSource(feedUrl: string) {
     }).join("\n\n---\n\n");
 }
 
-async function analyzeNews(ai: GoogleGenAI, newsContent: string) {
-    if (!newsContent.trim()) return [];
-    const schema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { eventName: { type: Type.STRING }, summary: { type: Type.STRING }, importance: { type: Type.STRING, enum: ["High", "Medium", "Low"] }, link: { type: Type.STRING } }, required: ["eventName", "summary", "importance", "link"] } };
-    const prompt = `請從以下財經新聞列表中，選出最重要的五則新聞。針對這五則新聞，請執行以下任務：
-1. 將 eventName (事件名稱) 和 summary (摘要) 翻譯成自然流暢、口語化的繁體中文。
-2. 保持 importance (重要性) 和 link (原始連結) 不變。
-3. 最終請以 JSON 陣列的格式回傳這五則經過處理的新聞，並嚴格遵守提供的 schema。如果提供的新聞少于五則，請處理所有新聞。
-新聞列表：\n\n${newsContent}`;
+async function getNewsAndCalendarAnalysis(ai: GoogleGenAI, financialNewsContent: string, cryptoNewsContent: string) {
+    const today = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+    const todayStr = today.toISOString().split('T')[0];
+
+    const newsItemSchema = { type: Type.OBJECT, properties: { eventName: { type: Type.STRING }, summary: { type: Type.STRING }, importance: { type: Type.STRING, enum: ["High", "Medium", "Low"] }, link: { type: Type.STRING } }, required: ["eventName", "summary", "importance", "link"] };
+    const calendarItemSchema = { type: Type.OBJECT, properties: { date: { type: Type.STRING }, time: { type: Type.STRING }, country: { type: Type.STRING }, eventName: { type: Type.STRING }, importance: { type: Type.STRING, enum: ["High"] } }, required: ["date", "time", "country", "eventName", "importance"] };
+    const combinedSchema = { type: Type.OBJECT, properties: { financialNews: { type: Type.ARRAY, items: newsItemSchema }, cryptoNews: { type: Type.ARRAY, items: newsItemSchema }, calendar: { type: Type.ARRAY, items: calendarItemSchema } }, required: ["financialNews", "cryptoNews", "calendar"] };
+
+    const prompt = `請同時執行以下三項任務，並將所有結果合併為一個 JSON 物件回傳。
+
+1.  **分析主要財經新聞**: 從提供的主要財經新聞列表中，選出最重要的五則。將內容翻譯成自然流暢的繁體中文。保留 'importance' 和 'link'。新聞列表:
+    ---START---
+    ${financialNewsContent || "沒有提供新聞內容"}
+    ---END---
+
+2.  **分析加密貨幣新聞**: 從提供的加密貨幣新聞列表中，選出最重要的五則。將內容翻譯成自然流暢的繁體中文。保留 'importance' 和 'link'。新聞列表:
+    ---START---
+    ${cryptoNewsContent || "沒有提供新聞內容"}
+    ---END---
+
+3.  **獲取財經日曆**: 今天是 ${todayStr}。請提供未來一週內全球最重要的財經事件日曆。只回傳重要性為 'High' 的事件，包含日期、時間(台灣時間 UTC+8)、國家代碼、事件名稱。
+
+請嚴格遵守提供的 JSON schema 格式。`;
 
     const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: prompt,
-        config: { responseMimeType: "application/json", responseSchema: schema },
+        model: "gemini-2.5-flash", contents: prompt,
+        config: { responseMimeType: "application/json", responseSchema: combinedSchema },
     });
-    return JSON.parse(response.text.trim());
-}
-
-async function getFinancialCalendar(ai: GoogleGenAI) {
-    const schema = { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { date: { type: Type.STRING }, time: { type: Type.STRING }, country: { type: Type.STRING }, eventName: { type: Type.STRING }, importance: { type: Type.STRING, enum: ["High"] } }, required: ["date", "time", "country", "eventName", "importance"] } };
     
-    const today = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Taipei"}));
-    const todayStr = today.toISOString().split('T')[0];
-    
-    const prompt = `今天是 ${todayStr}。請提供未來一週內（從今天開始）全球最重要的財經事件日曆。請包含日期（YYYY-MM-DD）、時間（HH:MM，24小時制，台灣時間 UTC+8）、國家/地區的 ISO 3166-1 alpha-2 代碼（例如 US, EU, CN）、事件的繁體中文名稱和重要性。**只回傳重要性為 'High' 的事件。** 以 JSON 格式回傳。`;
-    
-    try {
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash", contents: prompt,
-            config: { responseMimeType: "application/json", responseSchema: schema },
+    const data = JSON.parse(response.text.trim());
+    if (Array.isArray(data.calendar)) {
+        data.calendar.sort((a:any, b:any) => {
+            const dateA = new Date(`${a.date}T${a.time || '00:00'}`);
+            const dateB = new Date(`${b.date}T${b.time || '00:00'}`);
+            return dateA.getTime() - dateB.getTime();
         });
-        let events = JSON.parse(response.text.trim());
-        
-        if (Array.isArray(events)) {
-            // Safeguard filter
-            events = events.filter(e => e.importance === 'High');
-            // Sort events chronologically
-            events.sort((a, b) => {
-                const dateA = new Date(`${a.date}T${a.time || '00:00'}`);
-                const dateB = new Date(`${b.date}T${b.time || '00:00'}`);
-                return dateA.getTime() - dateB.getTime();
-            });
-        }
-        
-        return events;
-    } catch (e) { console.error("Error fetching financial calendar:", e); return []; }
+    }
+    return data;
 }
 
 
@@ -92,19 +83,13 @@ async function getTrumpTracker(ai: GoogleGenAI) {
         const cleanedText = response.text.trim().replace(/```json|```/g, "");
         const parsedData = JSON.parse(cleanedText);
         
-        // Ensure the structure is correct even if the model messes up
         return {
             schedule: parsedData.schedule || [],
             topPost: parsedData.topPost || { postContent: "", url: "" }
         };
-
     } catch (e) {
         console.error("Error fetching or parsing Trump tracker data:", e);
-        // Return a default structure on failure to prevent frontend errors
-        return {
-            schedule: [],
-            topPost: { postContent: "", url: "" }
-        };
+        return { schedule: [], topPost: { postContent: "", url: "" } };
     }
 }
 
@@ -124,32 +109,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const ai = new GoogleGenAI({ apiKey });
 
     try {
-        const financialFeedUrl = "https://www.investing.com/rss/news_25.rss";
-        const cryptoFeedUrl = "https://www.investing.com/rss/news_301.rss";
+        const [financialNewsContent, cryptoNewsContent] = await Promise.all([
+            getNewsFromSource("https://www.investing.com/rss/news_25.rss"),
+            getNewsFromSource("https://www.investing.com/rss/news_301.rss")
+        ]);
 
-        // Fetch all data in parallel
-        const [
-            financialNewsContent,
-            cryptoNewsContent,
-            calendarData,
-            trumpTrackerData
-        ] = await Promise.all([
-            getNewsFromSource(financialFeedUrl),
-            getNewsFromSource(cryptoFeedUrl),
-            getFinancialCalendar(ai),
+        const [newsAndCalendarData, trumpTrackerData] = await Promise.all([
+            getNewsAndCalendarAnalysis(ai, financialNewsContent, cryptoNewsContent),
             getTrumpTracker(ai)
         ]);
 
-        const [financialNews, cryptoNews] = await Promise.all([
-            analyzeNews(ai, financialNewsContent),
-            analyzeNews(ai, cryptoNewsContent)
-        ]);
-        
         const dashboardData = {
-            financialNews,
-            cryptoNews,
-            calendar: calendarData,
-            trumpTracker: trumpTrackerData
+            ...newsAndCalendarData,
+            trumpTracker: trumpTrackerData,
         };
 
         res.status(200).json(dashboardData);
