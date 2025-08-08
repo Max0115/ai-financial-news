@@ -100,11 +100,15 @@ async function getTrumpTracker(ai: GoogleGenAI) {
 
 async function getCryptoTechnicalAnalysis(ai: GoogleGenAI, coin: { name: string, ticker: string }) {
     const prompt = `請使用 Google 搜尋獲取最新的 ${coin.name} (${coin.ticker}/USD) 日線級別的市場數據，並基於這些數據進行技術分析。請提供以下資訊，並嚴格以 JSON 物件格式回傳，不要包含任何 json markdown block:
+
 1.  **dataSource**: 簡要說明您分析所基於的數據來源或時間範圍 (例如 "Coinbase 2024-07-30 日線圖")。
-2.  **marketStructure**: 對當前市場結構的簡要分析 (例如 "處於上升趨勢中的盤整階段" 或 "跌破關鍵支撐，呈現看跌結構")。
+2.  **marketStructure**: 對當前市場結構的簡要分析。
 3.  **keyLevels**: 一個物件，包含以下幾個潛在的關鍵價位陣列 (如果不存在則回傳空陣列)。
 4.  **bullishScenario**: 看漲劇本的詳細描述。
-5.  **bearishScenario**: 看跌劇本的詳細描述。`;
+5.  **bearishScenario**: 看跌劇本的詳細描述。
+6.  **currentBias**: 一個包含 'sentiment' ('Bullish' 或 'Bearish') 和 'targetRange' (價格區間字串) 的物件。
+
+請在所有價格數字前後加上 **，例如 "**$65,000**" 或 "**$4,000 - $4,100**"。請確保所有欄位都以繁體中文填寫，並且 JSON 格式正確無誤。`;
 
     try {
         const response = await ai.models.generateContent({
@@ -113,14 +117,22 @@ async function getCryptoTechnicalAnalysis(ai: GoogleGenAI, coin: { name: string,
             config: { tools: [{ googleSearch: {} }] }
         });
         const cleanedText = response.text.trim().replace(/```json|```/g, "");
-        const parsedData = JSON.parse(cleanedText);
-        if (!parsedData.marketStructure || !parsedData.bullishScenario) {
+        let parsedData;
+        try {
+            parsedData = JSON.parse(cleanedText);
+        } catch (parseError) {
+             console.error(`Error parsing JSON for ${coin.ticker} in scheduled push:`, cleanedText, parseError);
+             throw new Error(`Unexpected token from API for ${coin.ticker}: "${cleanedText.substring(0, 50)}..." is not valid JSON`);
+        }
+        
+        if (!parsedData.marketStructure || !parsedData.bullishScenario || !parsedData.currentBias) {
             throw new Error(`Parsed data from Gemini is missing required fields for ${coin.ticker} analysis.`);
         }
+        parsedData.analysisTimestamp = new Date().toISOString();
         return parsedData;
     } catch (e) {
         console.error(`Error getting ${coin.ticker} analysis for scheduled push:`, e);
-        return { error: true, message: `無法生成 ${coin.ticker} 分析報告` };
+        return { error: true, message: `無法生成 ${coin.ticker} 分析報告`, analysisTimestamp: new Date().toISOString() };
     }
 }
 
@@ -164,17 +176,22 @@ async function sendComprehensiveDiscordMessage(webhookUrl: string, data: any, ru
      if (cryptoAnalysis) {
         const createCryptoEmbed = (analysisData: any, name: string) => {
             if (!analysisData || analysisData.error) return null;
-            const { marketStructure, bullishScenario, bearishScenario, dataSource } = analysisData;
+            const { marketStructure, bullishScenario, bearishScenario, dataSource, currentBias, analysisTimestamp } = analysisData;
             const fields = [];
+            if (currentBias) {
+                 const sentimentEmoji = currentBias.sentiment === 'Bullish' ? '📈' : '📉';
+                 fields.push({ name: `當前趨勢: ${currentBias.sentiment} ${sentimentEmoji}`, value: `> 目標區間: ${currentBias.targetRange}`, inline: false });
+            }
             if (marketStructure) fields.push({ name: '市場結構', value: `> ${marketStructure}`, inline: false });
             if (bullishScenario) fields.push({ name: '🐂 看漲劇本', value: `> ${bullishScenario}`, inline: false });
             if (bearishScenario) fields.push({ name: '🐻 看跌劇本', value: `> ${bearishScenario}`, inline: false });
 
             if (fields.length > 0) {
+                const formattedTimestamp = new Date(analysisTimestamp).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false });
                 return {
                     title: `📈 ${name} 技術分析`,
                     color: name === 'ETH' ? 6250495 : 16098048, // Purple for ETH, Orange for BTC
-                    description: `**數據來源:** ${dataSource || 'AI 綜合分析'}`,
+                    description: `**數據來源:** ${dataSource || 'AI 綜合分析'}\n**分析時間:** ${formattedTimestamp}`,
                     fields: fields
                 };
             }
@@ -232,12 +249,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             getNewsFromSource("https://www.investing.com/rss/news_301.rss"),
         ]);
         
-        const [newsAndCalendarData, trumpTrackerData, ethAnalysisData, btcAnalysisData] = await Promise.all([
-            getNewsAndCalendarAnalysisForPush(ai, financialNewsContent, cryptoNewsContent, runType),
-            getTrumpTracker(ai),
-            getCryptoTechnicalAnalysis(ai, { name: 'Ethereum', ticker: 'ETH' }),
-            getCryptoTechnicalAnalysis(ai, { name: 'Bitcoin', ticker: 'BTC' })
-        ]);
+        // Execute Gemini calls sequentially to avoid rate limiting
+        const newsAndCalendarData = await getNewsAndCalendarAnalysisForPush(ai, financialNewsContent, cryptoNewsContent, runType);
+        const trumpTrackerData = await getTrumpTracker(ai);
+        const btcAnalysisData = await getCryptoTechnicalAnalysis(ai, { name: 'Bitcoin', ticker: 'BTC' });
+        const ethAnalysisData = await getCryptoTechnicalAnalysis(ai, { name: 'Ethereum', ticker: 'ETH' });
         
         const allData = { 
             ...newsAndCalendarData,

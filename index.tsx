@@ -33,6 +33,7 @@ interface TrumpTrackerData {
 }
 
 interface CryptoAnalysisData {
+  analysisTimestamp: string;
   dataSource?: string;
   marketStructure?: string;
   keyLevels?: {
@@ -42,6 +43,10 @@ interface CryptoAnalysisData {
   };
   bullishScenario?: string;
   bearishScenario?: string;
+  currentBias?: {
+    sentiment: 'Bullish' | 'Bearish';
+    targetRange: string;
+  };
   error?: boolean;
   message?: string;
 }
@@ -103,7 +108,6 @@ const App: React.FC = () => {
       if (err instanceof Error) {
         errorMessage = err.message;
       }
-      // Add custom error message for rate limiting
       if (typeof errorMessage === 'string' && (errorMessage.includes('429') || errorMessage.toUpperCase().includes('RESOURCE_EXHAUSTED') || errorMessage.includes('quota'))) {
         errorMessage = 'API 請求過於頻繁，已超出用量額度。請稍候一分鐘再重試。';
       }
@@ -194,8 +198,12 @@ const App: React.FC = () => {
     
     const createCryptoEmbed = (analysisData: CryptoAnalysisData, name: string) => {
         if (!analysisData || analysisData.error) return null;
-        const { marketStructure, keyLevels, bullishScenario, bearishScenario, dataSource } = analysisData;
+        const { marketStructure, keyLevels, bullishScenario, bearishScenario, dataSource, currentBias, analysisTimestamp } = analysisData;
         const fields = [];
+        if (currentBias) {
+            const sentimentEmoji = currentBias.sentiment === 'Bullish' ? '📈' : '📉';
+            fields.push({ name: `當前趨勢: ${currentBias.sentiment} ${sentimentEmoji}`, value: `> 目標區間: ${currentBias.targetRange}`, inline: false });
+        }
         if (marketStructure) fields.push({ name: '市場結構', value: `> ${marketStructure}`, inline: false });
         if (keyLevels) {
             let keyLevelsValue = '';
@@ -208,10 +216,11 @@ const App: React.FC = () => {
         if (bearishScenario) fields.push({ name: '🐻 看跌劇本', value: `> ${bearishScenario}`, inline: false });
 
         if (fields.length > 0) {
+            const formattedTimestamp = new Date(analysisTimestamp).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false });
             return {
                 title: `📈 ${name} 技術分析`,
                 color: name === 'ETH' ? 6250495 : 16098048, // Purple for ETH, Orange for BTC
-                description: `**數據來源:** ${dataSource || 'AI 綜合分析'}`,
+                description: `**數據來源:** ${dataSource || 'AI 綜合分析'}\n**分析時間:** ${formattedTimestamp}`,
                 fields: fields
             };
         }
@@ -226,18 +235,16 @@ const App: React.FC = () => {
         if (btcEmbed) embeds.push(btcEmbed);
     }
 
-    // Add a footer to the last embed
     if (embeds.length > 0) {
         embeds[embeds.length-1].footer = { text: 'AI Financial Insight Dashboard' };
         embeds[embeds.length-1].timestamp = timestamp;
     }
 
-
     try {
         const response = await fetch('/api/sendToDiscord', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ embeds }), // Send embeds array
+            body: JSON.stringify({ embeds }),
         });
         if (!response.ok) {
             const errorData = await response.json();
@@ -327,6 +334,17 @@ const App: React.FC = () => {
         ) : !isLoading && <p>未能獲取川普的相關動態。</p>}
     </div>
   );
+
+  const formatWithBold = (text: string | undefined | null) => {
+    if (!text) return 'N/A';
+    const parts = text.split(/(\*\*.*?\*\*)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={i}>{part.slice(2, -2)}</strong>;
+      }
+      return part;
+    });
+  };
   
   const renderSingleCoinAnalysis = (data: CryptoAnalysisData | undefined, name: string) => {
     const coinTicker = name.toUpperCase();
@@ -334,39 +352,51 @@ const App: React.FC = () => {
       return (
         <div className="analysis-card">
           <h4>{coinTicker} 技術分析</h4>
+          {data?.analysisTimestamp && <p className="analysis-timestamp">分析時間: {new Date(data.analysisTimestamp).toLocaleString('zh-TW')}</p>}
           <div className="error-container" style={{padding: '1rem 0'}}>
             <p>{data?.message || `未能獲取 ${coinTicker} 分析數據。`}</p>
           </div>
         </div>
       );
     }
-    const { dataSource, marketStructure, keyLevels, bullishScenario, bearishScenario } = data;
+    const { dataSource, marketStructure, keyLevels, bullishScenario, bearishScenario, currentBias, analysisTimestamp } = data;
+    const biasClass = currentBias?.sentiment === 'Bullish' ? 'bias-bullish' : 'bias-bearish';
+
     return (
        <div className="analysis-card">
           <h4>{coinTicker} 技術分析</h4>
+          <p className="analysis-timestamp">分析時間: {new Date(analysisTimestamp).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}</p>
           <p className="data-source">數據來源: {dataSource || 'AI 綜合分析'}</p>
+          
+          {currentBias && (
+            <div className={`sub-card current-bias ${biasClass}`}>
+              <h5>當前趨勢: {currentBias.sentiment === 'Bullish' ? '看漲 📈' : '看跌 📉'}</h5>
+              <p>目標區間: {formatWithBold(currentBias.targetRange)}</p>
+            </div>
+          )}
+
           <div className="sub-card">
             <h5>市場結構分析</h5>
-            <p>{marketStructure || 'N/A'}</p>
+            <p>{formatWithBold(marketStructure)}</p>
           </div>
           <div className="sub-card">
             <h5>關鍵價位</h5>
             {keyLevels && (keyLevels.liquidityPools?.length || keyLevels.orderBlocks?.length || keyLevels.fairValueGaps?.length) ? (
               <ul>
-                {keyLevels.liquidityPools?.length > 0 && <li><strong>流動性池:</strong> {keyLevels.liquidityPools.join(', ')}</li>}
-                {keyLevels.orderBlocks?.length > 0 && <li><strong>訂單塊:</strong> {keyLevels.orderBlocks.join(', ')}</li>}
-                {keyLevels.fairValueGaps?.length > 0 && <li><strong>FVG:</strong> {keyLevels.fairValueGaps.join(', ')}</li>}
+                {keyLevels.liquidityPools?.length > 0 && <li><strong>流動性池:</strong> {formatWithBold(keyLevels.liquidityPools.join(', '))}</li>}
+                {keyLevels.orderBlocks?.length > 0 && <li><strong>訂單塊:</strong> {formatWithBold(keyLevels.orderBlocks.join(', '))}</li>}
+                {keyLevels.fairValueGaps?.length > 0 && <li><strong>FVG:</strong> {formatWithBold(keyLevels.fairValueGaps.join(', '))}</li>}
               </ul>
             ) : <p>未能識別關鍵價位。</p>}
           </div>
           <div className="scenario-grid">
             <div className="sub-card scenario-bullish">
               <h5>看漲劇本 🐂</h5>
-              <p>{bullishScenario || 'N/A'}</p>
+              <p>{formatWithBold(bullishScenario)}</p>
             </div>
             <div className="sub-card scenario-bearish">
               <h5>看跌劇本 🐻</h5>
-              <p>{bearishScenario || 'N/A'}</p>
+              <p>{formatWithBold(bearishScenario)}</p>
             </div>
           </div>
         </div>

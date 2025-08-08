@@ -89,6 +89,7 @@ async function getTrumpTracker(ai: GoogleGenAI) {
         };
     } catch (e) {
         console.error("Error fetching or parsing Trump tracker data:", e);
+        // Return a default structure on error to prevent frontend crashes
         return { schedule: [], topPost: { postContent: "", url: "" } };
     }
 }
@@ -97,15 +98,16 @@ async function getCryptoTechnicalAnalysis(ai: GoogleGenAI, coin: { name: string,
     const prompt = `請使用 Google 搜尋獲取最新的 ${coin.name} (${coin.ticker}/USD) 日線級別的市場數據，並基於這些數據進行技術分析。請提供以下資訊，並嚴格以 JSON 物件格式回傳，不要包含任何 json markdown block:
 
 1.  **dataSource**: 簡要說明您分析所基於的數據來源或時間範圍 (例如 "Coinbase 2024-07-30 日線圖")。
-2.  **marketStructure**: 對當前市場結構的簡要分析 (例如 "處於上升趨勢中的盤整階段" 或 "跌破關鍵支撐，呈現看跌結構")。
+2.  **marketStructure**: 對當前市場結構的簡要分析。
 3.  **keyLevels**: 一個物件，包含以下幾個潛在的關鍵價位陣列 (如果不存在則回傳空陣列):
     *   "liquidityPools": ["$XXXX", "$YYYY"] (主要的流動性池)。
     *   "orderBlocks": ["$XXXX - $YYYY (看漲)", "$ZZZZ - $WWWW (看跌)"] (潛在的訂單塊)。
     *   "fairValueGaps": ["$AAAA - $BBBB"] (明顯的公允價值缺口 FVG)。
 4.  **bullishScenario**: 看漲劇本的詳細描述。
 5.  **bearishScenario**: 看跌劇本的詳細描述。
+6.  **currentBias**: 一個包含 'sentiment' ('Bullish' 或 'Bearish') 和 'targetRange' (價格區間字串) 的物件。
 
-請確保所有欄位都以繁體中文填寫，並且 JSON 格式正確無誤。
+請在所有價格數字前後加上 **，例如 "**$65,000**" 或 "**$4,000 - $4,100**"。請確保所有欄位都以繁體中文填寫，並且 JSON 格式正確無誤。
 `;
 
     try {
@@ -116,12 +118,20 @@ async function getCryptoTechnicalAnalysis(ai: GoogleGenAI, coin: { name: string,
         });
 
         const cleanedText = response.text.trim().replace(/```json|```/g, "");
-        const parsedData = JSON.parse(cleanedText);
+        let parsedData;
+        try {
+            parsedData = JSON.parse(cleanedText);
+        } catch (parseError) {
+             console.error(`Error parsing JSON for ${coin.ticker}:`, cleanedText, parseError);
+             throw new Error(`Unexpected token from API for ${coin.ticker}: "${cleanedText.substring(0, 50)}..." is not valid JSON`);
+        }
         
-        if (!parsedData.marketStructure || !parsedData.bullishScenario) {
+        if (!parsedData.marketStructure || !parsedData.bullishScenario || !parsedData.currentBias) {
             throw new Error(`Parsed data from Gemini is missing required fields for ${coin.ticker}.`);
         }
         
+        // Add timestamp after successful analysis
+        parsedData.analysisTimestamp = new Date().toISOString();
         return parsedData;
 
     } catch (e) {
@@ -129,6 +139,7 @@ async function getCryptoTechnicalAnalysis(ai: GoogleGenAI, coin: { name: string,
         return {
             error: true,
             message: e instanceof Error ? e.message : `無法生成 ${coin.ticker} 分析報告。`,
+            analysisTimestamp: new Date().toISOString()
         };
     }
 }
@@ -150,17 +161,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const ai = new GoogleGenAI({ apiKey });
 
     try {
+        // Fetch news feeds first (not a Gemini call)
         const [financialNewsContent, cryptoNewsContent] = await Promise.all([
             getNewsFromSource("https://www.investing.com/rss/news_25.rss"),
             getNewsFromSource("https://www.investing.com/rss/news_301.rss")
         ]);
 
-        const [newsAndCalendarData, trumpTrackerData, ethAnalysisData, btcAnalysisData] = await Promise.all([
-            getNewsAndCalendarAnalysis(ai, financialNewsContent, cryptoNewsContent),
-            getTrumpTracker(ai),
-            getCryptoTechnicalAnalysis(ai, { name: 'Ethereum', ticker: 'ETH' }),
-            getCryptoTechnicalAnalysis(ai, { name: 'Bitcoin', ticker: 'BTC' })
-        ]);
+        // Execute Gemini calls sequentially to avoid rate limiting
+        const newsAndCalendarData = await getNewsAndCalendarAnalysis(ai, financialNewsContent, cryptoNewsContent);
+        const trumpTrackerData = await getTrumpTracker(ai);
+        const btcAnalysisData = await getCryptoTechnicalAnalysis(ai, { name: 'Bitcoin', ticker: 'BTC' });
+        const ethAnalysisData = await getCryptoTechnicalAnalysis(ai, { name: 'Ethereum', ticker: 'ETH' });
 
         const dashboardData = {
             ...newsAndCalendarData,

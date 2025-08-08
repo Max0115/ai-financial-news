@@ -36,7 +36,6 @@ const App = () => {
       if (err instanceof Error) {
         errorMessage = err.message;
       }
-      // Add custom error message for rate limiting
       if (typeof errorMessage === 'string' && (errorMessage.includes('429') || errorMessage.toUpperCase().includes('RESOURCE_EXHAUSTED') || errorMessage.includes('quota'))) {
         errorMessage = 'API 請求過於頻繁，已超出用量額度。請稍候一分鐘再重試。';
       }
@@ -127,8 +126,12 @@ const App = () => {
     
     const createCryptoEmbed = (analysisData, name) => {
         if (!analysisData || analysisData.error) return null;
-        const { marketStructure, keyLevels, bullishScenario, bearishScenario, dataSource } = analysisData;
+        const { marketStructure, keyLevels, bullishScenario, bearishScenario, dataSource, currentBias, analysisTimestamp } = analysisData;
         const fields = [];
+        if (currentBias) {
+            const sentimentEmoji = currentBias.sentiment === 'Bullish' ? '📈' : '📉';
+            fields.push({ name: `當前趨勢: ${currentBias.sentiment} ${sentimentEmoji}`, value: `> 目標區間: ${currentBias.targetRange}`, inline: false });
+        }
         if (marketStructure) fields.push({ name: '市場結構', value: `> ${marketStructure}`, inline: false });
         if (keyLevels) {
             let keyLevelsValue = '';
@@ -141,10 +144,11 @@ const App = () => {
         if (bearishScenario) fields.push({ name: '🐻 看跌劇本', value: `> ${bearishScenario}`, inline: false });
 
         if (fields.length > 0) {
+            const formattedTimestamp = new Date(analysisTimestamp).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false });
             return {
                 title: `📈 ${name} 技術分析`,
                 color: name === 'ETH' ? 6250495 : 16098048, // Purple for ETH, Orange for BTC
-                description: `**數據來源:** ${dataSource || 'AI 綜合分析'}`,
+                description: `**數據來源:** ${dataSource || 'AI 綜合分析'}\n**分析時間:** ${formattedTimestamp}`,
                 fields: fields
             };
         }
@@ -159,18 +163,16 @@ const App = () => {
         if (btcEmbed) embeds.push(btcEmbed);
     }
 
-    // Add a footer to the last embed
     if (embeds.length > 0) {
         embeds[embeds.length-1].footer = { text: 'AI Financial Insight Dashboard' };
         embeds[embeds.length-1].timestamp = timestamp;
     }
 
-
     try {
         const response = await fetch('/api/sendToDiscord', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ embeds }), // Send embeds array
+            body: JSON.stringify({ embeds }),
         });
         if (!response.ok) {
             const errorData = await response.json();
@@ -282,6 +284,17 @@ const App = () => {
       }) : !isLoading && jsx("p", { children: "未能獲取川普的相關動態。" })
     ]
   });
+
+  const formatWithBold = (text) => {
+    if (!text) return 'N/A';
+    const parts = text.split(/(\*\*.*?\*\*)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return jsx("strong", { children: part.slice(2, -2) }, i);
+      }
+      return part;
+    });
+  };
   
   const renderSingleCoinAnalysis = (data, name) => {
     const coinTicker = name.toUpperCase();
@@ -290,6 +303,7 @@ const App = () => {
         className: "analysis-card",
         children: [
           jsx("h4", { children: `${coinTicker} 技術分析` }),
+          data?.analysisTimestamp && jsx("p", { className: "analysis-timestamp", children: `分析時間: ${new Date(data.analysisTimestamp).toLocaleString('zh-TW')}` }),
           jsx("div", {
             className: "error-container",
             style: { padding: '1rem 0' },
@@ -298,17 +312,27 @@ const App = () => {
         ]
       });
     }
-    const { dataSource, marketStructure, keyLevels, bullishScenario, bearishScenario } = data;
+    const { dataSource, marketStructure, keyLevels, bullishScenario, bearishScenario, currentBias, analysisTimestamp } = data;
+    const biasClass = currentBias?.sentiment === 'Bullish' ? 'bias-bullish' : 'bias-bearish';
+
     return jsxs("div", {
       className: "analysis-card",
       children: [
         jsx("h4", { children: `${coinTicker} 技術分析` }),
+        jsx("p", { className: "analysis-timestamp", children: `分析時間: ${new Date(analysisTimestamp).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}` }),
         jsx("p", { className: "data-source", children: `數據來源: ${dataSource || 'AI 綜合分析'}` }),
+        currentBias && jsxs("div", {
+          className: `sub-card current-bias ${biasClass}`,
+          children: [
+            jsx("h5", { children: `當前趨勢: ${currentBias.sentiment === 'Bullish' ? '看漲 📈' : '看跌 📉'}` }),
+            jsx("p", { children: ["目標區間: ", formatWithBold(currentBias.targetRange)] })
+          ]
+        }),
         jsxs("div", {
           className: "sub-card",
           children: [
             jsx("h5", { children: "市場結構分析" }),
-            jsx("p", { children: marketStructure || 'N/A' })
+            jsx("p", { children: formatWithBold(marketStructure) })
           ]
         }),
         jsxs("div", {
@@ -317,9 +341,9 @@ const App = () => {
             jsx("h5", { children: "關鍵價位" }),
             keyLevels && (keyLevels.liquidityPools?.length || keyLevels.orderBlocks?.length || keyLevels.fairValueGaps?.length) ? jsx("ul", {
               children: [
-                keyLevels.liquidityPools?.length > 0 && jsx("li", { children: [jsx("strong", { children: "流動性池:" }), " ", keyLevels.liquidityPools.join(', ')] }),
-                keyLevels.orderBlocks?.length > 0 && jsx("li", { children: [jsx("strong", { children: "訂單塊:" }), " ", keyLevels.orderBlocks.join(', ')] }),
-                keyLevels.fairValueGaps?.length > 0 && jsx("li", { children: [jsx("strong", { children: "FVG:" }), " ", keyLevels.fairValueGaps.join(', ')] })
+                keyLevels.liquidityPools?.length > 0 && jsxs("li", { children: [jsx("strong", { children: "流動性池:" }), " ", formatWithBold(keyLevels.liquidityPools.join(', '))] }),
+                keyLevels.orderBlocks?.length > 0 && jsxs("li", { children: [jsx("strong", { children: "訂單塊:" }), " ", formatWithBold(keyLevels.orderBlocks.join(', '))] }),
+                keyLevels.fairValueGaps?.length > 0 && jsxs("li", { children: [jsx("strong", { children: "FVG:" }), " ", formatWithBold(keyLevels.fairValueGaps.join(', '))] })
               ]
             }) : jsx("p", { children: "未能識別關鍵價位。" })
           ]
@@ -331,21 +355,21 @@ const App = () => {
               className: "sub-card scenario-bullish",
               children: [
                 jsx("h5", { children: "看漲劇本 🐂" }),
-                jsx("p", { children: bullishScenario || 'N/A' })
+                jsx("p", { children: formatWithBold(bullishScenario) })
               ]
             }),
             jsxs("div", {
               className: "sub-card scenario-bearish",
               children: [
                 jsx("h5", { children: "看跌劇本 🐻" }),
-                jsx("p", { children: bearishScenario || 'N/A' })
+                jsx("p", { children: formatWithBold(bearishScenario) })
               ]
             })
           ]
         })
       ]
     });
-  };
+  }
 
   const renderCryptoAnalysis = (data, isLoading) => {
     if (isLoading) return jsx("div", { className: "loader" });
@@ -361,6 +385,7 @@ const App = () => {
       ]
     });
   };
+
 
   return jsxs("div", {
     className: "app-container",

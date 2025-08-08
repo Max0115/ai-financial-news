@@ -13,6 +13,8 @@
   --error-color: #dc3545;
   --info-color: #0dcaf0;
   --tab-inactive-color: #6c757d;
+  --bullish-bg: #e8f5e9;
+  --bearish-bg: #fce4e4;
 }
 
 * {
@@ -239,18 +241,9 @@ body {
     text-align: center;
     min-width: 90px;
 }
-.calendar-importance.importance-_h {
-    background-color: var(--importance-high);
-    color: white;
-}
-.calendar-importance.importance-Medium {
-    background-color: var(--importance-medium);
-    color: var(--text-color);
-}
-.calendar-importance.importance-Low {
-    background-color: var(--importance-low);
-    color: white;
-}
+.calendar-importance.importance-High { background-color: var(--importance-high); color: white; }
+.calendar-importance.importance-Medium { background-color: var(--importance-medium); color: var(--text-color); }
+.calendar-importance.importance-Low { background-color: var(--importance-low); color: white; }
 
 
 /* Trump Tracker Section */
@@ -321,21 +314,29 @@ body {
     font-size: 1.4rem;
     font-weight: 700;
     margin-bottom: 0;
-    padding-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
     border-bottom: 1px solid var(--border-color);
 }
 
+.analysis-timestamp {
+    font-size: 0.8rem;
+    color: var(--secondary-color);
+    text-align: left;
+}
+
 .data-source {
-  text-align: center;
   font-style: italic;
   color: var(--secondary-color);
   font-size: 0.9rem;
+  text-align: left;
+  margin-top: -0.5rem;
 }
 
 .sub-card {
   background-color: #f9fafb;
   border-radius: 8px;
   padding: 1rem;
+  border: 1px solid var(--border-color);
 }
 
 .sub-card h5 {
@@ -345,6 +346,7 @@ body {
 }
 .sub-card p, .sub-card li {
     font-size: 1rem;
+    line-height: 1.7;
 }
 
 .sub-card ul {
@@ -365,6 +367,23 @@ body {
     grid-template-columns: 1fr;
     gap: 1rem;
 }
+
+.current-bias {
+    border-width: 2px;
+}
+.current-bias.bias-bullish {
+    border-left: 5px solid var(--importance-low);
+    background-color: var(--bullish-bg);
+}
+.current-bias.bias-bearish {
+    border-left: 5px solid var(--importance-high);
+    background-color: var(--bearish-bg);
+}
+.current-bias h5 {
+    color: var(--text-color);
+    font-size: 1.2rem;
+}
+
 
 .scenario-bullish {
   border-left: 4px solid var(--importance-low); /* Green */
