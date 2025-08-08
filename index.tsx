@@ -12,7 +12,7 @@ interface CalendarEvent {
     date: string;
     time: string;
     country: string;
-    eventName: string;
+    eventName:string;
     importance: 'High' | 'Medium' | 'Low';
 }
 
@@ -32,11 +32,29 @@ interface TrumpTrackerData {
     topPost: TrumpPost;
 }
 
+interface CryptoAnalysisData {
+  dataSource?: string;
+  marketStructure?: string;
+  keyLevels?: {
+    liquidityPools?: string[];
+    orderBlocks?: string[];
+    fairValueGaps?: string[];
+  };
+  bullishScenario?: string;
+  bearishScenario?: string;
+  error?: boolean;
+  message?: string;
+}
+
 interface DashboardData {
     financialNews: FinancialArticle[];
     cryptoNews: FinancialArticle[];
     calendar: CalendarEvent[];
     trumpTracker: TrumpTrackerData;
+    cryptoAnalysis: {
+      eth: CryptoAnalysisData;
+      btc: CryptoAnalysisData;
+    };
 }
 
 interface DiscordStatus {
@@ -48,19 +66,20 @@ type LoadingState = {
     news: boolean;
     calendar: boolean;
     trump: boolean;
+    crypto: boolean;
 };
 
 const App: React.FC = () => {
   const [dashboardData, setDashboardData] = useState<Partial<DashboardData>>({});
-  const [loading, setLoading] = useState<LoadingState>({ news: true, calendar: true, trump: true });
+  const [loading, setLoading] = useState<LoadingState>({ news: true, calendar: true, trump: true, crypto: true });
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'news' | 'calendar' | 'trump'>('news');
+  const [activeTab, setActiveTab] = useState<'news' | 'calendar' | 'trump' | 'crypto'>('news');
   const [discordStatus, setDiscordStatus] = useState<DiscordStatus | null>(null);
   const [isSendingToDiscord, setIsSendingToDiscord] = useState<boolean>(false);
   const [refreshTrigger, setRefreshTrigger] = useState<number>(0);
 
   const fetchDashboardData = useCallback(async () => {
-    setLoading({ news: true, calendar: true, trump: true });
+    setLoading({ news: true, calendar: true, trump: true, crypto: true });
     setError(null);
     setDiscordStatus(null);
     
@@ -90,7 +109,7 @@ const App: React.FC = () => {
       }
       setError(errorMessage);
     } finally {
-      setLoading({ news: false, calendar: false, trump: false });
+      setLoading({ news: false, calendar: false, trump: false, crypto: false });
     }
   }, []);
 
@@ -119,7 +138,7 @@ const App: React.FC = () => {
     setIsSendingToDiscord(true);
     setDiscordStatus(null);
     
-    const { financialNews, cryptoNews, calendar, trumpTracker } = dashboardData;
+    const { financialNews, cryptoNews, calendar, trumpTracker, cryptoAnalysis } = dashboardData;
     const embeds = [];
 
     const timestamp = new Date().toISOString();
@@ -173,6 +192,40 @@ const App: React.FC = () => {
         }
     }
     
+    const createCryptoEmbed = (analysisData: CryptoAnalysisData, name: string) => {
+        if (!analysisData || analysisData.error) return null;
+        const { marketStructure, keyLevels, bullishScenario, bearishScenario, dataSource } = analysisData;
+        const fields = [];
+        if (marketStructure) fields.push({ name: '市場結構', value: `> ${marketStructure}`, inline: false });
+        if (keyLevels) {
+            let keyLevelsValue = '';
+            if (keyLevels.liquidityPools?.length) keyLevelsValue += `> **流動性池:** ${keyLevels.liquidityPools.join(', ')}\n`;
+            if (keyLevels.orderBlocks?.length) keyLevelsValue += `> **訂單塊:** ${keyLevels.orderBlocks.join(', ')}\n`;
+            if (keyLevels.fairValueGaps?.length) keyLevelsValue += `> **FVG:** ${keyLevels.fairValueGaps.join(', ')}\n`;
+            if (keyLevelsValue) fields.push({ name: '關鍵價位', value: keyLevelsValue, inline: false });
+        }
+        if (bullishScenario) fields.push({ name: '🐂 看漲劇本', value: `> ${bullishScenario}`, inline: false });
+        if (bearishScenario) fields.push({ name: '🐻 看跌劇本', value: `> ${bearishScenario}`, inline: false });
+
+        if (fields.length > 0) {
+            return {
+                title: `📈 ${name} 技術分析`,
+                color: name === 'ETH' ? 6250495 : 16098048, // Purple for ETH, Orange for BTC
+                description: `**數據來源:** ${dataSource || 'AI 綜合分析'}`,
+                fields: fields
+            };
+        }
+        return null;
+    }
+
+    if (cryptoAnalysis) {
+        const ethEmbed = createCryptoEmbed(cryptoAnalysis.eth, 'ETH');
+        if (ethEmbed) embeds.push(ethEmbed);
+
+        const btcEmbed = createCryptoEmbed(cryptoAnalysis.btc, 'BTC');
+        if (btcEmbed) embeds.push(btcEmbed);
+    }
+
     // Add a footer to the last embed
     if (embeds.length > 0) {
         embeds[embeds.length-1].footer = { text: 'AI Financial Insight Dashboard' };
@@ -250,8 +303,8 @@ const App: React.FC = () => {
       <div className="trump-tracker-section">
         {isLoading && <div className="loader small"></div>}
         {!isLoading && data ? (
-            <div className="trump-grid">
-                <div className="trump-card">
+            <div className="info-grid">
+                <div className="info-card">
                     <h4>🎤 行程與演講 (今明兩天)</h4>
                     {data.schedule && data.schedule.length > 0 ? (
                         <ul>
@@ -261,7 +314,7 @@ const App: React.FC = () => {
                         </ul>
                     ) : <p>目前沒有已知的公開行程。</p>}
                 </div>
-                <div className="trump-card">
+                <div className="info-card">
                     <h4>💬 Truth Social 當日熱門</h4>
                     {data.topPost && data.topPost.postContent ? (
                         <p>
@@ -274,6 +327,65 @@ const App: React.FC = () => {
         ) : !isLoading && <p>未能獲取川普的相關動態。</p>}
     </div>
   );
+  
+  const renderSingleCoinAnalysis = (data: CryptoAnalysisData | undefined, name: string) => {
+    const coinTicker = name.toUpperCase();
+    if (!data || data.error) {
+      return (
+        <div className="analysis-card">
+          <h4>{coinTicker} 技術分析</h4>
+          <div className="error-container" style={{padding: '1rem 0'}}>
+            <p>{data?.message || `未能獲取 ${coinTicker} 分析數據。`}</p>
+          </div>
+        </div>
+      );
+    }
+    const { dataSource, marketStructure, keyLevels, bullishScenario, bearishScenario } = data;
+    return (
+       <div className="analysis-card">
+          <h4>{coinTicker} 技術分析</h4>
+          <p className="data-source">數據來源: {dataSource || 'AI 綜合分析'}</p>
+          <div className="sub-card">
+            <h5>市場結構分析</h5>
+            <p>{marketStructure || 'N/A'}</p>
+          </div>
+          <div className="sub-card">
+            <h5>關鍵價位</h5>
+            {keyLevels && (keyLevels.liquidityPools?.length || keyLevels.orderBlocks?.length || keyLevels.fairValueGaps?.length) ? (
+              <ul>
+                {keyLevels.liquidityPools?.length > 0 && <li><strong>流動性池:</strong> {keyLevels.liquidityPools.join(', ')}</li>}
+                {keyLevels.orderBlocks?.length > 0 && <li><strong>訂單塊:</strong> {keyLevels.orderBlocks.join(', ')}</li>}
+                {keyLevels.fairValueGaps?.length > 0 && <li><strong>FVG:</strong> {keyLevels.fairValueGaps.join(', ')}</li>}
+              </ul>
+            ) : <p>未能識別關鍵價位。</p>}
+          </div>
+          <div className="scenario-grid">
+            <div className="sub-card scenario-bullish">
+              <h5>看漲劇本 🐂</h5>
+              <p>{bullishScenario || 'N/A'}</p>
+            </div>
+            <div className="sub-card scenario-bearish">
+              <h5>看跌劇本 🐻</h5>
+              <p>{bearishScenario || 'N/A'}</p>
+            </div>
+          </div>
+        </div>
+    );
+  }
+
+  const renderCryptoAnalysis = (data: { eth: CryptoAnalysisData; btc: CryptoAnalysisData } | undefined, isLoading: boolean) => {
+    if (isLoading) return <div className="loader"></div>;
+    if (!data) {
+      return <div className="error-container" style={{padding: '2rem'}}><p>未能獲取加密貨幣分析數據。</p></div>;
+    }
+
+    return (
+      <div className="crypto-analysis-container">
+        {renderSingleCoinAnalysis(data.btc, 'BTC')}
+        {renderSingleCoinAnalysis(data.eth, 'ETH')}
+      </div>
+    );
+  };
 
 
   return (
@@ -308,6 +420,7 @@ const App: React.FC = () => {
             <button className={`tab-button ${activeTab === 'news' ? 'active' : ''}`} onClick={() => setActiveTab('news')}>📰 新聞摘要</button>
             <button className={`tab-button ${activeTab === 'calendar' ? 'active' : ''}`} onClick={() => setActiveTab('calendar')}>🗓️ 財經日曆</button>
             <button className={`tab-button ${activeTab === 'trump' ? 'active' : ''}`} onClick={() => setActiveTab('trump')}>🦅 川普動態</button>
+            <button className={`tab-button ${activeTab === 'crypto' ? 'active' : ''}`} onClick={() => setActiveTab('crypto')}>📈 加密貨幣分析</button>
         </div>
         
         <div className="tab-content">
@@ -327,6 +440,7 @@ const App: React.FC = () => {
                     )}
                     {activeTab === 'calendar' && renderCalendar(dashboardData.calendar, loading.calendar)}
                     {activeTab === 'trump' && renderTrumpTracker(dashboardData.trumpTracker, loading.trump)}
+                    {activeTab === 'crypto' && renderCryptoAnalysis(dashboardData.cryptoAnalysis, loading.crypto)}
                 </>
             )}
         </div>

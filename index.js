@@ -4,7 +4,7 @@ import { jsx, jsxs } from "react/jsx-runtime";
 
 const App = () => {
   const [dashboardData, setDashboardData] = useState({});
-  const [loading, setLoading] = useState({ news: true, calendar: true, trump: true });
+  const [loading, setLoading] = useState({ news: true, calendar: true, trump: true, crypto: true });
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('news');
   const [discordStatus, setDiscordStatus] = useState(null);
@@ -12,7 +12,7 @@ const App = () => {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const fetchDashboardData = useCallback(async () => {
-    setLoading({ news: true, calendar: true, trump: true });
+    setLoading({ news: true, calendar: true, trump: true, crypto: true });
     setError(null);
     setDiscordStatus(null);
     
@@ -24,7 +24,7 @@ const App = () => {
             const errorData = await response.json();
             errorMessage = `Internal Server Error: ${errorData.error || response.statusText}`;
         } catch (e) {
-            errorMessage = `Internal Server Error: got status: ${response.status}`;
+             errorMessage = `Internal Server Error: got status: ${response.status}`;
         }
         throw new Error(errorMessage);
       }
@@ -42,7 +42,7 @@ const App = () => {
       }
       setError(errorMessage);
     } finally {
-      setLoading({ news: false, calendar: false, trump: false });
+      setLoading({ news: false, calendar: false, trump: false, crypto: false });
     }
   }, []);
 
@@ -71,7 +71,7 @@ const App = () => {
     setIsSendingToDiscord(true);
     setDiscordStatus(null);
     
-    const { financialNews, cryptoNews, calendar, trumpTracker } = dashboardData;
+    const { financialNews, cryptoNews, calendar, trumpTracker, cryptoAnalysis } = dashboardData;
     const embeds = [];
 
     const timestamp = new Date().toISOString();
@@ -125,6 +125,40 @@ const App = () => {
         }
     }
     
+    const createCryptoEmbed = (analysisData, name) => {
+        if (!analysisData || analysisData.error) return null;
+        const { marketStructure, keyLevels, bullishScenario, bearishScenario, dataSource } = analysisData;
+        const fields = [];
+        if (marketStructure) fields.push({ name: '市場結構', value: `> ${marketStructure}`, inline: false });
+        if (keyLevels) {
+            let keyLevelsValue = '';
+            if (keyLevels.liquidityPools?.length) keyLevelsValue += `> **流動性池:** ${keyLevels.liquidityPools.join(', ')}\n`;
+            if (keyLevels.orderBlocks?.length) keyLevelsValue += `> **訂單塊:** ${keyLevels.orderBlocks.join(', ')}\n`;
+            if (keyLevels.fairValueGaps?.length) keyLevelsValue += `> **FVG:** ${keyLevels.fairValueGaps.join(', ')}\n`;
+            if (keyLevelsValue) fields.push({ name: '關鍵價位', value: keyLevelsValue, inline: false });
+        }
+        if (bullishScenario) fields.push({ name: '🐂 看漲劇本', value: `> ${bullishScenario}`, inline: false });
+        if (bearishScenario) fields.push({ name: '🐻 看跌劇本', value: `> ${bearishScenario}`, inline: false });
+
+        if (fields.length > 0) {
+            return {
+                title: `📈 ${name} 技術分析`,
+                color: name === 'ETH' ? 6250495 : 16098048, // Purple for ETH, Orange for BTC
+                description: `**數據來源:** ${dataSource || 'AI 綜合分析'}`,
+                fields: fields
+            };
+        }
+        return null;
+    }
+
+    if (cryptoAnalysis) {
+        const ethEmbed = createCryptoEmbed(cryptoAnalysis.eth, 'ETH');
+        if (ethEmbed) embeds.push(ethEmbed);
+
+        const btcEmbed = createCryptoEmbed(cryptoAnalysis.btc, 'BTC');
+        if (btcEmbed) embeds.push(btcEmbed);
+    }
+
     // Add a footer to the last embed
     if (embeds.length > 0) {
         embeds[embeds.length-1].footer = { text: 'AI Financial Insight Dashboard' };
@@ -214,11 +248,11 @@ const App = () => {
     className: "trump-tracker-section",
     children: [
       isLoading && jsx("div", { className: "loader small" }),
-      !isLoading && data ? jsx("div", {
-        className: "trump-grid",
+      !isLoading && data ? jsxs("div", {
+        className: "info-grid",
         children: [
           jsxs("div", {
-            className: "trump-card",
+            className: "info-card",
             children: [
               jsx("h4", { children: "🎤 行程與演講 (今明兩天)" }),
               data.schedule && data.schedule.length > 0 ? jsx("ul", {
@@ -233,7 +267,7 @@ const App = () => {
             ]
           }),
           jsxs("div", {
-            className: "trump-card",
+            className: "info-card",
             children: [
               jsx("h4", { children: "💬 Truth Social 當日熱門" }),
               data.topPost && data.topPost.postContent ? jsxs("p", {
@@ -248,6 +282,85 @@ const App = () => {
       }) : !isLoading && jsx("p", { children: "未能獲取川普的相關動態。" })
     ]
   });
+  
+  const renderSingleCoinAnalysis = (data, name) => {
+    const coinTicker = name.toUpperCase();
+    if (!data || data.error) {
+      return jsxs("div", {
+        className: "analysis-card",
+        children: [
+          jsx("h4", { children: `${coinTicker} 技術分析` }),
+          jsx("div", {
+            className: "error-container",
+            style: { padding: '1rem 0' },
+            children: jsx("p", { children: data?.message || `未能獲取 ${coinTicker} 分析數據。` })
+          })
+        ]
+      });
+    }
+    const { dataSource, marketStructure, keyLevels, bullishScenario, bearishScenario } = data;
+    return jsxs("div", {
+      className: "analysis-card",
+      children: [
+        jsx("h4", { children: `${coinTicker} 技術分析` }),
+        jsx("p", { className: "data-source", children: `數據來源: ${dataSource || 'AI 綜合分析'}` }),
+        jsxs("div", {
+          className: "sub-card",
+          children: [
+            jsx("h5", { children: "市場結構分析" }),
+            jsx("p", { children: marketStructure || 'N/A' })
+          ]
+        }),
+        jsxs("div", {
+          className: "sub-card",
+          children: [
+            jsx("h5", { children: "關鍵價位" }),
+            keyLevels && (keyLevels.liquidityPools?.length || keyLevels.orderBlocks?.length || keyLevels.fairValueGaps?.length) ? jsx("ul", {
+              children: [
+                keyLevels.liquidityPools?.length > 0 && jsx("li", { children: [jsx("strong", { children: "流動性池:" }), " ", keyLevels.liquidityPools.join(', ')] }),
+                keyLevels.orderBlocks?.length > 0 && jsx("li", { children: [jsx("strong", { children: "訂單塊:" }), " ", keyLevels.orderBlocks.join(', ')] }),
+                keyLevels.fairValueGaps?.length > 0 && jsx("li", { children: [jsx("strong", { children: "FVG:" }), " ", keyLevels.fairValueGaps.join(', ')] })
+              ]
+            }) : jsx("p", { children: "未能識別關鍵價位。" })
+          ]
+        }),
+        jsxs("div", {
+          className: "scenario-grid",
+          children: [
+            jsxs("div", {
+              className: "sub-card scenario-bullish",
+              children: [
+                jsx("h5", { children: "看漲劇本 🐂" }),
+                jsx("p", { children: bullishScenario || 'N/A' })
+              ]
+            }),
+            jsxs("div", {
+              className: "sub-card scenario-bearish",
+              children: [
+                jsx("h5", { children: "看跌劇本 🐻" }),
+                jsx("p", { children: bearishScenario || 'N/A' })
+              ]
+            })
+          ]
+        })
+      ]
+    });
+  };
+
+  const renderCryptoAnalysis = (data, isLoading) => {
+    if (isLoading) return jsx("div", { className: "loader" });
+    if (!data) {
+      return jsx("div", { className: "error-container", style: { padding: '2rem' }, children: jsx("p", { children: "未能獲取加密貨幣分析數據。" }) });
+    }
+
+    return jsxs("div", {
+      className: "crypto-analysis-container",
+      children: [
+        renderSingleCoinAnalysis(data.btc, 'BTC'),
+        renderSingleCoinAnalysis(data.eth, 'ETH')
+      ]
+    });
+  };
 
   return jsxs("div", {
     className: "app-container",
@@ -294,7 +407,8 @@ const App = () => {
             children: [
               jsx("button", { className: `tab-button ${activeTab === 'news' ? 'active' : ''}`, onClick: () => setActiveTab('news'), children: "📰 新聞摘要" }),
               jsx("button", { className: `tab-button ${activeTab === 'calendar' ? 'active' : ''}`, onClick: () => setActiveTab('calendar'), children: "🗓️ 財經日曆" }),
-              jsx("button", { className: `tab-button ${activeTab === 'trump' ? 'active' : ''}`, onClick: () => setActiveTab('trump'), children: "🦅 川普動態" })
+              jsx("button", { className: `tab-button ${activeTab === 'trump' ? 'active' : ''}`, onClick: () => setActiveTab('trump'), children: "🦅 川普動態" }),
+              jsx("button", { className: `tab-button ${activeTab === 'crypto' ? 'active' : ''}`, onClick: () => setActiveTab('crypto'), children: "📈 加密貨幣分析" })
             ]
           }),
           jsx("div", {
@@ -316,7 +430,8 @@ const App = () => {
                   ]
                 }),
                 activeTab === 'calendar' && renderCalendar(dashboardData.calendar, loading.calendar),
-                activeTab === 'trump' && renderTrumpTracker(dashboardData.trumpTracker, loading.trump)
+                activeTab === 'trump' && renderTrumpTracker(dashboardData.trumpTracker, loading.trump),
+                activeTab === 'crypto' && renderCryptoAnalysis(dashboardData.cryptoAnalysis, loading.crypto)
               ]
             })
           })

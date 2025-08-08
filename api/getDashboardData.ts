@@ -93,6 +93,47 @@ async function getTrumpTracker(ai: GoogleGenAI) {
     }
 }
 
+async function getCryptoTechnicalAnalysis(ai: GoogleGenAI, coin: { name: string, ticker: string }) {
+    const prompt = `請使用 Google 搜尋獲取最新的 ${coin.name} (${coin.ticker}/USD) 日線級別的市場數據，並基於這些數據進行技術分析。請提供以下資訊，並嚴格以 JSON 物件格式回傳，不要包含任何 json markdown block:
+
+1.  **dataSource**: 簡要說明您分析所基於的數據來源或時間範圍 (例如 "Coinbase 2024-07-30 日線圖")。
+2.  **marketStructure**: 對當前市場結構的簡要分析 (例如 "處於上升趨勢中的盤整階段" 或 "跌破關鍵支撐，呈現看跌結構")。
+3.  **keyLevels**: 一個物件，包含以下幾個潛在的關鍵價位陣列 (如果不存在則回傳空陣列):
+    *   "liquidityPools": ["$XXXX", "$YYYY"] (主要的流動性池)。
+    *   "orderBlocks": ["$XXXX - $YYYY (看漲)", "$ZZZZ - $WWWW (看跌)"] (潛在的訂單塊)。
+    *   "fairValueGaps": ["$AAAA - $BBBB"] (明顯的公允價值缺口 FVG)。
+4.  **bullishScenario**: 看漲劇本的詳細描述。
+5.  **bearishScenario**: 看跌劇本的詳細描述。
+
+請確保所有欄位都以繁體中文填寫，並且 JSON 格式正確無誤。
+`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: { tools: [{ googleSearch: {} }] }
+        });
+
+        const cleanedText = response.text.trim().replace(/```json|```/g, "");
+        const parsedData = JSON.parse(cleanedText);
+        
+        if (!parsedData.marketStructure || !parsedData.bullishScenario) {
+            throw new Error(`Parsed data from Gemini is missing required fields for ${coin.ticker}.`);
+        }
+        
+        return parsedData;
+
+    } catch (e) {
+        console.error(`Error getting ${coin.ticker} analysis:`, e);
+        return {
+            error: true,
+            message: e instanceof Error ? e.message : `無法生成 ${coin.ticker} 分析報告。`,
+        };
+    }
+}
+
+
 // --- Main Handler ---
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -114,14 +155,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             getNewsFromSource("https://www.investing.com/rss/news_301.rss")
         ]);
 
-        const [newsAndCalendarData, trumpTrackerData] = await Promise.all([
+        const [newsAndCalendarData, trumpTrackerData, ethAnalysisData, btcAnalysisData] = await Promise.all([
             getNewsAndCalendarAnalysis(ai, financialNewsContent, cryptoNewsContent),
-            getTrumpTracker(ai)
+            getTrumpTracker(ai),
+            getCryptoTechnicalAnalysis(ai, { name: 'Ethereum', ticker: 'ETH' }),
+            getCryptoTechnicalAnalysis(ai, { name: 'Bitcoin', ticker: 'BTC' })
         ]);
 
         const dashboardData = {
             ...newsAndCalendarData,
             trumpTracker: trumpTrackerData,
+            cryptoAnalysis: {
+                eth: ethAnalysisData,
+                btc: btcAnalysisData,
+            },
         };
 
         res.status(200).json(dashboardData);
