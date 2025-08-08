@@ -79,23 +79,18 @@ async function getTrumpTracker(ai: GoogleGenAI) {
 如果找不到行程，"schedule" 應為空陣列 []。
 如果找不到今日貼文，"topPost" 中的 "postContent" 和 "url" 應為空字串。`;
 
-    try {
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: { tools: [{ googleSearch: {} }] }
-        });
-        const cleanedText = response.text.trim().replace(/```json|```/g, "");
-        const parsedData = JSON.parse(cleanedText);
-        
-        return {
-            schedule: parsedData.schedule || [],
-            topPost: parsedData.topPost || { postContent: "", url: "" }
-        };
-    } catch (e) {
-        console.error("Error fetching or parsing Trump tracker data:", e);
-        return { schedule: [], topPost: { postContent: "", url: "" } };
-    }
+    const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: { tools: [{ googleSearch: {} }] }
+    });
+    const cleanedText = response.text.trim().replace(/```json|```/g, "");
+    const parsedData = JSON.parse(cleanedText);
+    
+    return {
+        schedule: parsedData.schedule || [],
+        topPost: parsedData.topPost || { postContent: "", url: "" }
+    };
 }
 
 async function getCryptoTechnicalAnalysis(ai: GoogleGenAI, coin: { name: string, ticker: string }) {
@@ -110,30 +105,25 @@ async function getCryptoTechnicalAnalysis(ai: GoogleGenAI, coin: { name: string,
 
 請在所有價格數字前後加上 **，例如 "**$65,000**" 或 "**$4,000 - $4,100**"。請確保所有欄位都以繁體中文填寫，並且 JSON 格式正確無誤。`;
 
+    const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: { tools: [{ googleSearch: {} }] }
+    });
+    const cleanedText = response.text.trim().replace(/```json|```/g, "");
+    let parsedData;
     try {
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: { tools: [{ googleSearch: {} }] }
-        });
-        const cleanedText = response.text.trim().replace(/```json|```/g, "");
-        let parsedData;
-        try {
-            parsedData = JSON.parse(cleanedText);
-        } catch (parseError) {
-             console.error(`Error parsing JSON for ${coin.ticker} in scheduled push:`, cleanedText, parseError);
-             throw new Error(`Unexpected token from API for ${coin.ticker}: "${cleanedText.substring(0, 50)}..." is not valid JSON`);
-        }
-        
-        if (!parsedData.marketStructure || !parsedData.bullishScenario || !parsedData.currentBias) {
-            throw new Error(`Parsed data from Gemini is missing required fields for ${coin.ticker} analysis.`);
-        }
-        parsedData.analysisTimestamp = new Date().toISOString();
-        return parsedData;
-    } catch (e) {
-        console.error(`Error getting ${coin.ticker} analysis for scheduled push:`, e);
-        return { error: true, message: `無法生成 ${coin.ticker} 分析報告`, analysisTimestamp: new Date().toISOString() };
+        parsedData = JSON.parse(cleanedText);
+    } catch (parseError) {
+         console.error(`Error parsing JSON for ${coin.ticker} in scheduled push:`, cleanedText, parseError);
+         throw new Error(`Unexpected token from API for ${coin.ticker}: "${cleanedText.substring(0, 50)}..." is not valid JSON`);
     }
+    
+    if (!parsedData.marketStructure || !parsedData.bullishScenario || !parsedData.currentBias) {
+        throw new Error(`Parsed data from Gemini is missing required fields for ${coin.ticker} analysis.`);
+    }
+    parsedData.analysisTimestamp = new Date().toISOString();
+    return parsedData;
 }
 
 async function sendComprehensiveDiscordMessage(webhookUrl: string, data: any, runType: string) {
@@ -161,7 +151,7 @@ async function sendComprehensiveDiscordMessage(webhookUrl: string, data: any, ru
             description: calendar.slice(0, 10).map((e: any) => `> **${e.date.substring(5)} ${e.time}** ${getCountryFlag(e.country)} ${e.eventName} (${getImportanceEmoji(e.importance)} ${e.importance})`).join('\n')
         });
     }
-    if (trumpTracker) {
+    if (trumpTracker && !trumpTracker.error) {
         const fields = [];
         if (trumpTracker.schedule?.length > 0) {
             fields.push({ name: '🎤 行程與演講', value: trumpTracker.schedule.map((i: any) => `> - **${i.date.substring(5)} ${i.time}:** ${i.eventDescription}`).join('\n'), inline: false });
@@ -249,18 +239,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             getNewsFromSource("https://www.investing.com/rss/news_301.rss"),
         ]);
         
-        // Execute Gemini calls sequentially to avoid rate limiting
-        const newsAndCalendarData = await getNewsAndCalendarAnalysisForPush(ai, financialNewsContent, cryptoNewsContent, runType);
-        const trumpTrackerData = await getTrumpTracker(ai);
-        const btcAnalysisData = await getCryptoTechnicalAnalysis(ai, { name: 'Bitcoin', ticker: 'BTC' });
-        const ethAnalysisData = await getCryptoTechnicalAnalysis(ai, { name: 'Ethereum', ticker: 'ETH' });
+        const promises = [
+            getNewsAndCalendarAnalysisForPush(ai, financialNewsContent, cryptoNewsContent, runType).catch(e => {
+                console.error(`Error in scheduled push for news/calendar:`, e);
+                return { error: true, message: e.message, financialNews:[], cryptoNews:[], calendar:[] };
+            }),
+            getTrumpTracker(ai).catch(e => {
+                console.error(`Error in scheduled push for Trump tracker:`, e);
+                return { error: true, message: e.message, schedule: [], topPost: { postContent: "", url: "" } };
+            }),
+            getCryptoTechnicalAnalysis(ai, { name: 'Bitcoin', ticker: 'BTC' }).catch(e => {
+                console.error(`Error in scheduled push for BTC analysis:`, e);
+                return { error: true, message: e.message, analysisTimestamp: new Date().toISOString() };
+            }),
+            getCryptoTechnicalAnalysis(ai, { name: 'Ethereum', ticker: 'ETH' }).catch(e => {
+                console.error(`Error in scheduled push for ETH analysis:`, e);
+                return { error: true, message: e.message, analysisTimestamp: new Date().toISOString() };
+            })
+        ];
+
+        const [newsAndCalendarData, trumpTrackerData, btcAnalysisData, ethAnalysisData] = await Promise.all(promises);
         
         const allData = { 
-            ...newsAndCalendarData,
-            trumpTracker: trumpTrackerData,
+            ...(newsAndCalendarData as any),
+            trumpTracker: trumpTrackerData as any,
             cryptoAnalysis: {
-                eth: ethAnalysisData,
-                btc: btcAnalysisData,
+                btc: btcAnalysisData as any,
+                eth: ethAnalysisData as any,
             }
         };
 
@@ -272,6 +277,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     } catch (error) {
         console.error(`Error in scheduled ${runType} push:`, error);
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+        
+        // Try to send a failure notification to Discord
+        try {
+            await fetch(webhookUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: `🚨 **AI Financial Dashboard Cron Job FAILED** 🚨\n**Type:** ${runType}\n**Error:** ${errorMessage}` })
+            });
+        } catch (discordError) {
+            console.error("Failed to send failure notification to Discord:", discordError);
+        }
+
         res.status(500).json({ error: `Internal Server Error: ${errorMessage}` });
     }
 }

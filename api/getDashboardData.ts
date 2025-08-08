@@ -73,25 +73,19 @@ async function getTrumpTracker(ai: GoogleGenAI) {
 如果找不到行程，"schedule" 應為空陣列 []。
 如果找不到今日貼文，"topPost" 中的 "postContent" 和 "url" 應為空字串。`;
 
-    try {
-        console.log("Fetching Trump tracker data (schedule and post)...");
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: { tools: [{ googleSearch: {} }] }
-        });
-        const cleanedText = response.text.trim().replace(/```json|```/g, "");
-        const parsedData = JSON.parse(cleanedText);
-        
-        return {
-            schedule: parsedData.schedule || [],
-            topPost: parsedData.topPost || { postContent: "", url: "" }
-        };
-    } catch (e) {
-        console.error("Error fetching or parsing Trump tracker data:", e);
-        // Return a default structure on error to prevent frontend crashes
-        return { schedule: [], topPost: { postContent: "", url: "" } };
-    }
+    console.log("Fetching Trump tracker data (schedule and post)...");
+    const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: { tools: [{ googleSearch: {} }] }
+    });
+    const cleanedText = response.text.trim().replace(/```json|```/g, "");
+    const parsedData = JSON.parse(cleanedText);
+    
+    return {
+        schedule: parsedData.schedule || [],
+        topPost: parsedData.topPost || { postContent: "", url: "" }
+    };
 }
 
 async function getCryptoTechnicalAnalysis(ai: GoogleGenAI, coin: { name: string, ticker: string }) {
@@ -110,38 +104,27 @@ async function getCryptoTechnicalAnalysis(ai: GoogleGenAI, coin: { name: string,
 請在所有價格數字前後加上 **，例如 "**$65,000**" 或 "**$4,000 - $4,100**"。請確保所有欄位都以繁體中文填寫，並且 JSON 格式正確無誤。
 `;
 
+    const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: { tools: [{ googleSearch: {} }] }
+    });
+
+    const cleanedText = response.text.trim().replace(/```json|```/g, "");
+    let parsedData;
     try {
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: { tools: [{ googleSearch: {} }] }
-        });
-
-        const cleanedText = response.text.trim().replace(/```json|```/g, "");
-        let parsedData;
-        try {
-            parsedData = JSON.parse(cleanedText);
-        } catch (parseError) {
-             console.error(`Error parsing JSON for ${coin.ticker}:`, cleanedText, parseError);
-             throw new Error(`Unexpected token from API for ${coin.ticker}: "${cleanedText.substring(0, 50)}..." is not valid JSON`);
-        }
-        
-        if (!parsedData.marketStructure || !parsedData.bullishScenario || !parsedData.currentBias) {
-            throw new Error(`Parsed data from Gemini is missing required fields for ${coin.ticker}.`);
-        }
-        
-        // Add timestamp after successful analysis
-        parsedData.analysisTimestamp = new Date().toISOString();
-        return parsedData;
-
-    } catch (e) {
-        console.error(`Error getting ${coin.ticker} analysis:`, e);
-        return {
-            error: true,
-            message: e instanceof Error ? e.message : `無法生成 ${coin.ticker} 分析報告。`,
-            analysisTimestamp: new Date().toISOString()
-        };
+        parsedData = JSON.parse(cleanedText);
+    } catch (parseError) {
+         console.error(`Error parsing JSON for ${coin.ticker}:`, cleanedText, parseError);
+         throw new Error(`Unexpected token from API for ${coin.ticker}: "${cleanedText.substring(0, 50)}..." is not valid JSON`);
     }
+    
+    if (!parsedData.marketStructure || !parsedData.bullishScenario || !parsedData.currentBias) {
+        throw new Error(`Parsed data from Gemini is missing required fields for ${coin.ticker}.`);
+    }
+    
+    parsedData.analysisTimestamp = new Date().toISOString();
+    return parsedData;
 }
 
 
@@ -167,25 +150,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             getNewsFromSource("https://www.investing.com/rss/news_301.rss")
         ]);
 
-        // Execute Gemini calls sequentially to avoid rate limiting
-        const newsAndCalendarData = await getNewsAndCalendarAnalysis(ai, financialNewsContent, cryptoNewsContent);
-        const trumpTrackerData = await getTrumpTracker(ai);
-        const btcAnalysisData = await getCryptoTechnicalAnalysis(ai, { name: 'Bitcoin', ticker: 'BTC' });
-        const ethAnalysisData = await getCryptoTechnicalAnalysis(ai, { name: 'Ethereum', ticker: 'ETH' });
+        // Execute all Gemini API calls in parallel, but with individual error handling
+        // This prevents the entire page from failing if one API call fails.
+        const promises = [
+            getNewsAndCalendarAnalysis(ai, financialNewsContent, cryptoNewsContent).catch(e => {
+                console.error("Error fetching news and calendar data:", e);
+                return { error: true, message: e.message, financialNews: [], cryptoNews: [], calendar: [] };
+            }),
+            getTrumpTracker(ai).catch(e => {
+                console.error("Error fetching Trump tracker data:", e);
+                return { error: true, message: e.message, schedule: [], topPost: { postContent: "", url: "" } };
+            }),
+            getCryptoTechnicalAnalysis(ai, { name: 'Bitcoin', ticker: 'BTC' }).catch(e => {
+                console.error("Error getting BTC analysis:", e);
+                return { error: true, message: e.message || `無法生成 BTC 分析報告。`, analysisTimestamp: new Date().toISOString() };
+            }),
+            getCryptoTechnicalAnalysis(ai, { name: 'Ethereum', ticker: 'ETH' }).catch(e => {
+                console.error("Error getting ETH analysis:", e);
+                return { error: true, message: e.message || `無法生成 ETH 分析報告。`, analysisTimestamp: new Date().toISOString() };
+            })
+        ];
+
+        const [newsAndCalendarData, trumpTrackerData, btcAnalysisData, ethAnalysisData] = await Promise.all(promises);
 
         const dashboardData = {
-            ...newsAndCalendarData,
-            trumpTracker: trumpTrackerData,
+            ...(newsAndCalendarData as any),
+            trumpTracker: trumpTrackerData as any,
             cryptoAnalysis: {
-                eth: ethAnalysisData,
-                btc: btcAnalysisData,
+                btc: btcAnalysisData as any,
+                eth: ethAnalysisData as any,
             },
         };
 
         res.status(200).json(dashboardData);
 
     } catch (error) {
-        console.error("Error in /api/getDashboardData:", error);
+        console.error("Critical error in /api/getDashboardData handler:", error);
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
         res.status(500).json({ error: `Internal Server Error: ${errorMessage}` });
     }
